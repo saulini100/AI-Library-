@@ -1,0 +1,40 @@
+The Universal Document Reader Guide
+
+Chapter 1: Introduction to Document Processing
+
+Welcome to the Universal Document Reader, a powerful tool designed to transform any PDF or TXT document into an interactive reading experience. This system automatically detects chapters, provides text-to-speech functionality, and allows you to create annotations and bookmarks.
+
+The reader supports documents up to 10MB in size and uses intelligent parsing to break content into manageable chapters and paragraphs.
+
+Chapter 2: Features and Capabilities
+
+Text-to-Speech Integration
+The built-in speech synthesis allows you to listen to your documents while following along with the text. You can control playback speed and pause at any time.
+
+Annotation System
+Create detailed notes on any selected text. Annotations are saved with precise location references, making it easy to find your thoughts later.
+
+Bookmark Management
+Mark important sections for quick access. Bookmarks include chapter and paragraph references for precise navigation.
+
+Chapter 3: Getting Started
+
+Upload Process
+Simply drag and drop your PDF or TXT file into the upload area. The system will automatically process the document and extract chapters.
+
+Navigation
+Use the sidebar to jump between chapters quickly. The reading progress is automatically saved as you navigate through the document.
+
+Search Functionality
+Find specific content across all your uploaded documents using the integrated search feature.
+
+Chapter 4: Advanced Features
+
+Reading Progress Tracking
+Your position in each document is automatically saved, allowing you to resume reading exactly where you left off.
+
+Dark Mode Support
+Toggle between light and dark themes for comfortable reading in any lighting condition.
+
+Responsive Design
+The interface adapts to different screen sizes, providing an optimal reading experience on desktop, tablet, and mobile devices.
