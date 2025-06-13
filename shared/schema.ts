@@ -10,32 +10,32 @@ export const users = pgTable("users", {
 
 export const annotations = pgTable("annotations", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id"),
+  userId: integer("user_id").notNull(),
   book: text("book").notNull(),
   chapter: integer("chapter").notNull(),
-  verse: integer("verse").notNull(),
+  verse: integer("verse"),
   selectedText: text("selected_text").notNull(),
   note: text("note").notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const bookmarks = pgTable("bookmarks", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id"),
+  userId: integer("user_id").notNull(),
   book: text("book").notNull(),
   chapter: integer("chapter").notNull(),
   verse: integer("verse"),
   title: text("title"),
-  createdAt: timestamp("created_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const readingProgress = pgTable("reading_progress", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id"),
+  userId: integer("user_id").notNull(),
   book: text("book").notNull(),
   chapter: integer("chapter").notNull(),
-  completed: integer("completed").default(0), // 0 = not started, 1 = completed
-  createdAt: timestamp("created_at").defaultNow(),
+  completed: integer("completed").default(0).notNull(), // 0 = not started, 1 = completed
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
 
 export const insertUserSchema = createInsertSchema(users).omit({

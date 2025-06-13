@@ -10,6 +10,30 @@ const openai = new OpenAI({
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
+  // Initialize default user
+  const initializeUser = async () => {
+    try {
+      let user = await storage.getUserByUsername("default_user");
+      if (!user) {
+        user = await storage.createUser({
+          username: "default_user",
+          password: "default_password"
+        });
+        console.log("Created default user:", user.id);
+      }
+      return user;
+    } catch (error) {
+      console.error("Failed to initialize user:", error);
+      return null;
+    }
+  };
+
+  // Get or create default user for all requests
+  const getDefaultUserId = async () => {
+    const user = await initializeUser();
+    return user?.id || 1;
+  };
+
   // Bible content routes
   app.get("/api/bible/books", async (req, res) => {
     try {
@@ -52,11 +76,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // Annotations routes
   app.get("/api/annotations", async (req, res) => {
     try {
-      // For demo purposes, using userId = 1
-      const userId = 1;
+      const userId = await getDefaultUserId();
       const annotations = await storage.getAnnotations(userId);
       res.json(annotations);
     } catch (error) {
+      console.error("Database error:", error);
       res.status(500).json({ error: "Failed to fetch annotations" });
     }
   });
@@ -64,10 +88,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/annotations/:book/:chapter", async (req, res) => {
     try {
       const { book, chapter } = req.params;
-      const userId = 1;
+      const userId = await getDefaultUserId();
       const annotations = await storage.getAnnotationsByChapter(userId, book, parseInt(chapter));
       res.json(annotations);
     } catch (error) {
+      console.error("Database error:", error);
       res.status(500).json({ error: "Failed to fetch chapter annotations" });
     }
   });
@@ -75,10 +100,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/annotations", async (req, res) => {
     try {
       const annotationData = insertAnnotationSchema.parse(req.body);
-      const userId = 1;
+      const userId = await getDefaultUserId();
       const annotation = await storage.createAnnotation({ ...annotationData, userId });
       res.json(annotation);
     } catch (error) {
+      console.error("Database error:", error);
       res.status(400).json({ error: "Invalid annotation data" });
     }
   });

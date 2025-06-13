@@ -251,17 +251,18 @@ export class DatabaseStorage implements IStorage {
     const [existing] = await db
       .select()
       .from(readingProgress)
-      .where(eq(readingProgress.userId, progress.userId))
-      .where(eq(readingProgress.book, progress.book))
-      .where(eq(readingProgress.chapter, progress.chapter));
+      .where(and(
+        eq(readingProgress.userId, progress.userId),
+        eq(readingProgress.book, progress.book),
+        eq(readingProgress.chapter, progress.chapter)
+      ));
 
     if (existing) {
       // Update existing record
       const [updated] = await db
         .update(readingProgress)
         .set({
-          completedAt: progress.completedAt,
-          timeSpent: progress.timeSpent
+          completed: progress.completed
         })
         .where(eq(readingProgress.id, existing.id))
         .returning();
