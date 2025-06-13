@@ -70,23 +70,23 @@ export default function AnnotationModal({
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg border-border">
         <DialogHeader className="space-y-3">
-          <DialogTitle className="text-xl font-semibold text-foreground">Create Annotation</DialogTitle>
-          <p className="text-sm text-muted-foreground">
+          <DialogTitle className="text-xl font-semibold text-gray-900">Add Note</DialogTitle>
+          <p className="text-sm text-gray-500">
             Add your personal notes and insights to this verse
           </p>
         </DialogHeader>
         
         <div className="space-y-6 mt-6">
           <div>
-            <Label className="text-sm font-medium text-foreground mb-3 block">Selected Text</Label>
-            <div className="p-4 bg-muted/50 border border-border rounded-xl text-sm text-foreground leading-relaxed">
-              <span className="text-primary font-medium">"{selectedText}"</span>
+            <Label className="text-sm font-medium text-gray-900 mb-3 block">Selected Text</Label>
+            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 leading-relaxed">
+              <span className="font-medium">"{selectedText}"</span>
             </div>
           </div>
 
           <div>
-            <Label htmlFor="note" className="text-sm font-medium text-foreground mb-3 block">
-              Your Annotation
+            <Label htmlFor="note" className="text-sm font-medium text-gray-900 mb-3 block">
+              Your Note
             </Label>
             <Textarea
               id="note"
@@ -94,7 +94,7 @@ export default function AnnotationModal({
               onChange={(e) => setNote(e.target.value)}
               placeholder="Share your thoughts, insights, or reflections on this verse..."
               rows={5}
-              className="resize-none border-border bg-background text-foreground placeholder:text-muted-foreground focus:ring-primary focus:border-primary"
+              className="resize-none border-gray-200 bg-white text-gray-900 placeholder:text-gray-400"
             />
           </div>
 
@@ -102,17 +102,17 @@ export default function AnnotationModal({
             <Button
               variant="outline"
               onClick={handleClose}
-              className="flex-1 h-11 border-border text-foreground hover:bg-muted"
+              className="flex-1 h-11 border-gray-300 text-gray-700 hover:bg-gray-50"
               disabled={createAnnotationMutation.isPending}
             >
               Cancel
             </Button>
             <Button
               onClick={handleSave}
-              className="flex-1 h-11 bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
+              className="flex-1 h-11 bg-black hover:bg-gray-800 text-white font-medium"
               disabled={!note.trim() || !verse || createAnnotationMutation.isPending}
             >
-              {createAnnotationMutation.isPending ? "Saving..." : "Save Annotation"}
+              {createAnnotationMutation.isPending ? "Saving..." : "Save Note"}
             </Button>
           </div>
         </div>

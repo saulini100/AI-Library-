@@ -58,58 +58,63 @@ export default function BibleContent({ chapterData, annotations, onAddAnnotation
   }, {} as Record<number, any[]>) || {};
 
   return (
-    <main className="flex-1 overflow-auto bg-background">
-      <div className="max-w-5xl mx-auto px-8 py-10">
+    <main className="flex-1 overflow-auto bg-gray-50">
+      <div className="max-w-4xl mx-auto px-8 py-10">
         {/* Chapter Header */}
-        <div className="text-center mb-12">
-          <div className="inline-flex items-center space-x-3 mb-4">
-            <div className="w-3 h-3 bg-primary rounded-full"></div>
-            <h1 className="text-4xl font-bold text-foreground tracking-tight">
-              {chapterData.book} {chapterData.chapter}
+        <div className="bg-white rounded-lg p-8 mb-8 border border-gray-200">
+          <div className="text-center">
+            <h1 className="text-3xl font-semibold text-gray-900 mb-2">
+              {chapterData.book} Chapter {chapterData.chapter}
             </h1>
-            <div className="w-3 h-3 bg-primary rounded-full"></div>
+            <p className="text-gray-500 text-sm">
+              New International Version
+            </p>
           </div>
-          <p className="text-muted-foreground text-sm tracking-wide uppercase">
-            New International Version
-          </p>
         </div>
 
         {/* Bible Text */}
-        <div className="space-y-6 mb-16">
+        <div className="space-y-4 mb-8">
           {chapterData.verses.map((verse) => {
             const verseAnnotations = annotationsByVerse[verse.number] || [];
             
             return (
               <div key={verse.number} className="group relative">
-                <div className="flex items-start space-x-4 p-6 rounded-2xl border border-border/50 bg-card/30 hover:bg-card/60 hover:shadow-sm transition-all duration-300">
-                  <div className="flex-shrink-0 w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
-                    <span className="text-sm font-semibold text-primary">
-                      {verse.number}
-                    </span>
+                <div className={`
+                  flex items-start space-x-4 p-6 rounded-lg border transition-all duration-200
+                  ${verseAnnotations.length > 0 
+                    ? 'bg-blue-50 border-blue-200' 
+                    : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm'
+                  }
+                `}>
+                  <div className={`
+                    flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center text-sm font-medium
+                    ${verseAnnotations.length > 0 
+                      ? 'bg-blue-100 text-blue-700' 
+                      : 'bg-gray-100 text-gray-600'
+                    }
+                  `}>
+                    {verse.number}
                   </div>
                   <div className="flex-1">
                     <p 
-                      className="text-foreground leading-relaxed text-lg font-medium"
+                      className="text-gray-900 leading-relaxed text-lg"
                       data-verse={verse.number}
                       style={{ lineHeight: 1.8 }}
                     >
-                      <span className="select-text">
-                        {verse.text}
-                      </span>
+                      {verse.text}
                     </p>
                     
                     {/* Show annotation indicators */}
                     {verseAnnotations.length > 0 && (
-                      <div className="mt-4 flex flex-wrap gap-2">
+                      <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
                         {verseAnnotations.map((annotation) => (
-                          <Badge
-                            key={annotation.id}
-                            variant="secondary"
-                            className="text-xs bg-primary/10 text-primary border-primary/20 hover:bg-primary/20 transition-colors"
-                          >
-                            <StickyNote className="h-3 w-3 mr-1" />
-                            Annotation
-                          </Badge>
+                          <div key={annotation.id} className="flex items-start space-x-2">
+                            <StickyNote className="h-4 w-4 text-blue-600 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-medium text-blue-900 mb-1">Your Note:</p>
+                              <p className="text-sm text-blue-700">{annotation.note}</p>
+                            </div>
+                          </div>
                         ))}
                       </div>
                     )}
@@ -121,32 +126,30 @@ export default function BibleContent({ chapterData, annotations, onAddAnnotation
         </div>
 
         {/* Navigation Controls */}
-        <div className="flex items-center justify-between pt-12 border-t border-border">
+        <div className="flex items-center justify-between pt-8 border-t border-gray-200">
           <Button
             variant="outline"
             onClick={() => handleNavigation("prev")}
             disabled={chapterData.chapter <= 1}
-            className="flex items-center space-x-2 h-12 px-6 bg-card hover:bg-muted border-border"
+            className="flex items-center space-x-2 h-12 px-6 bg-white border-gray-300 hover:bg-gray-50"
           >
             <ChevronLeft className="h-4 w-4" />
-            <span className="font-medium">
-              {chapterData.book} {chapterData.chapter - 1}
-            </span>
+            <span>Chapter {chapterData.chapter - 1}</span>
           </Button>
 
           <div className="flex space-x-3">
             <Button 
               onClick={onAddAnnotation}
-              className="h-12 px-6 bg-primary hover:bg-primary/90 text-primary-foreground font-medium"
+              className="h-12 px-6 bg-black text-white hover:bg-gray-800"
             >
               <StickyNote className="h-4 w-4 mr-2" />
-              Add Annotation
+              Add Note
             </Button>
             <Button 
               variant="outline"
               onClick={handleAddBookmark}
               disabled={createBookmarkMutation.isPending}
-              className="h-12 px-6 bg-card hover:bg-muted border-border font-medium"
+              className="h-12 px-6 bg-white border-gray-300 hover:bg-gray-50"
             >
               <Bookmark className="h-4 w-4 mr-2" />
               {createBookmarkMutation.isPending ? "Saving..." : "Bookmark"}
@@ -156,11 +159,9 @@ export default function BibleContent({ chapterData, annotations, onAddAnnotation
           <Button
             variant="outline"
             onClick={() => handleNavigation("next")}
-            className="flex items-center space-x-2 h-12 px-6 bg-card hover:bg-muted border-border"
+            className="flex items-center space-x-2 h-12 px-6 bg-white border-gray-300 hover:bg-gray-50"
           >
-            <span className="font-medium">
-              {chapterData.book} {chapterData.chapter + 1}
-            </span>
+            <span>Chapter {chapterData.chapter + 1}</span>
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
