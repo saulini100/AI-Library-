@@ -147,6 +147,10 @@ export default function DocumentReader() {
     setSelectedParagraph(null);
   };
 
+  const handleGoHome = () => {
+    navigate('/');
+  };
+
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
   const toggleDarkMode = () => setDarkMode(!darkMode);
 
@@ -183,6 +187,7 @@ export default function DocumentReader() {
           duration={0}
           darkMode={darkMode}
           onToggleDarkMode={toggleDarkMode}
+          onGoHome={handleGoHome}
         />
         
         <div className="flex">

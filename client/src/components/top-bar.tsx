@@ -1,5 +1,5 @@
 import { Button } from "@/components/ui/button";
-import { Menu, Play, Pause, Sun, Moon, Type, PanelLeftOpen, PanelLeftClose } from "lucide-react";
+import { Menu, Play, Pause, Sun, Moon, Type, PanelLeftOpen, PanelLeftClose, Home } from "lucide-react";
 
 interface TopBarProps {
   book: string;
@@ -12,6 +12,7 @@ interface TopBarProps {
   duration: number;
   darkMode: boolean;
   onToggleDarkMode: () => void;
+  onGoHome?: () => void;
 }
 
 export default function TopBar({
@@ -25,6 +26,7 @@ export default function TopBar({
   duration,
   darkMode,
   onToggleDarkMode,
+  onGoHome,
 }: TopBarProps) {
   const formatTime = (time: number) => {
     const minutes = Math.floor(time / 60);
@@ -48,6 +50,18 @@ export default function TopBar({
               <PanelLeftOpen className="h-5 w-5" />
             )}
           </Button>
+          
+          {onGoHome && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-gray-600 hover:bg-gray-100 transition-colors"
+              onClick={onGoHome}
+            >
+              <Home className="h-5 w-5" />
+            </Button>
+          )}
+          
           <div>
             <h1 className="text-xl font-semibold text-gray-900">
               {book} Chapter {chapter}
