@@ -4,25 +4,26 @@ import { useLocation } from "wouter";
 import TopBar from "@/components/top-bar";
 import Sidebar from "@/components/sidebar";
 import DocumentLibrary from "@/components/document-library";
+import AnnotationModal from "@/components/annotation-modal";
 import { Document, DocumentChapter } from "@shared/schema";
 import { useSpeech } from "@/hooks/use-speech";
 import { useSelection } from "@/hooks/use-selection";
+import { apiRequest } from "@/lib/queryClient";
 
 interface DocumentContentProps {
   document: Document;
   chapter: DocumentChapter;
   annotations: any[];
-  onAddAnnotation: () => void;
+  onTextSelected: (text: string, paragraph: number | null) => void;
 }
 
-function DocumentContent({ document, chapter, annotations, onAddAnnotation }: DocumentContentProps) {
+function DocumentContent({ document, chapter, annotations, onTextSelected }: DocumentContentProps) {
   const paragraphs = chapter.paragraphs || [];
   const { isPlaying, togglePlayback, currentTime, duration } = useSpeech(paragraphs);
   
   const { startSelection } = useSelection({
     onSelection: (text: string, paragraph: number | null) => {
-      // Handle text selection for annotations
-      onAddAnnotation();
+      onTextSelected(text, paragraph);
     }
   });
 
@@ -43,7 +44,7 @@ function DocumentContent({ document, chapter, annotations, onAddAnnotation }: Do
           </h2>
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-8">
           {paragraphs.map((paragraph, index) => {
             const hasAnnotation = annotations.some(
               (ann: any) => ann.paragraph === paragraph.number
@@ -53,18 +54,14 @@ function DocumentContent({ document, chapter, annotations, onAddAnnotation }: Do
               <div
                 key={paragraph.number}
                 className={`
-                  p-4 rounded-lg transition-all duration-300 cursor-pointer
-                  hover:bg-accent/50 group relative
-                  ${hasAnnotation ? 'bg-yellow-50 dark:bg-yellow-900/20 border-l-4 border-yellow-400' : ''}
-                  animate-in slide-in-from-left duration-300
+                  p-6 rounded-xl transition-all duration-300 cursor-pointer
+                  hover:bg-accent/50 group relative border border-border/20
+                  ${hasAnnotation ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500' : 'bg-card'}
+                  shadow-sm hover:shadow-md
                 `}
-                style={{ animationDelay: `${index * 50}ms` }}
                 data-paragraph={paragraph.number}
               >
-                <p className="text-lg leading-relaxed text-foreground select-text">
-                  <span className="text-sm text-muted-foreground mr-3 font-mono">
-                    {paragraph.number}
-                  </span>
+                <p className="text-base leading-8 text-foreground select-text font-medium tracking-wide">
                   {paragraph.text}
                 </p>
                 

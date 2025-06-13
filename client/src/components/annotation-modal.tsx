@@ -15,47 +15,49 @@ interface AnnotationModalProps {
   isOpen: boolean;
   onClose: () => void;
   selectedText: string;
-  book: string;
+  documentId: number;
+  documentTitle: string;
   chapter: number;
-  verse: number | null;
+  paragraph: number | null;
 }
 
 export default function AnnotationModal({
   isOpen,
   onClose,
   selectedText,
-  book,
+  documentId,
+  documentTitle,
   chapter,
-  verse,
+  paragraph,
 }: AnnotationModalProps) {
   const [note, setNote] = useState("");
   const queryClient = useQueryClient();
 
   const createAnnotationMutation = useMutation({
     mutationFn: async (data: {
-      book: string;
+      documentId: number;
       chapter: number;
-      verse: number;
+      paragraph: number | null;
       selectedText: string;
       note: string;
     }) => {
-      await apiRequest("POST", "/api/annotations", data);
+      return await apiRequest("/api/annotations", { method: "POST", body: data });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/annotations"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/annotations", book, chapter] });
+      queryClient.invalidateQueries({ queryKey: [`/api/annotations/${documentId}/${chapter}`] });
       setNote("");
       onClose();
     },
   });
 
   const handleSave = () => {
-    if (!note.trim() || !verse) return;
+    if (!note.trim()) return;
 
     createAnnotationMutation.mutate({
-      book,
+      documentId,
       chapter,
-      verse,
+      paragraph,
       selectedText,
       note: note.trim(),
     });
@@ -70,31 +72,31 @@ export default function AnnotationModal({
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg border-border">
         <DialogHeader className="space-y-3">
-          <DialogTitle className="text-xl font-semibold text-gray-900">Add Note</DialogTitle>
-          <p className="text-sm text-gray-500">
-            Add your personal notes and insights to this verse
+          <DialogTitle className="text-xl font-semibold">Add Note</DialogTitle>
+          <p className="text-sm text-muted-foreground">
+            Add your personal notes and insights to this text
           </p>
         </DialogHeader>
         
         <div className="space-y-6 mt-6">
           <div>
-            <Label className="text-sm font-medium text-gray-900 mb-3 block">Selected Text</Label>
-            <div className="p-4 bg-gray-50 border border-gray-200 rounded-lg text-sm text-gray-700 leading-relaxed">
+            <Label className="text-sm font-medium mb-3 block">Selected Text</Label>
+            <div className="p-4 bg-muted border rounded-lg text-sm leading-relaxed">
               <span className="font-medium">"{selectedText}"</span>
             </div>
           </div>
 
           <div>
-            <Label htmlFor="note" className="text-sm font-medium text-gray-900 mb-3 block">
+            <Label htmlFor="note" className="text-sm font-medium mb-3 block">
               Your Note
             </Label>
             <Textarea
               id="note"
               value={note}
               onChange={(e) => setNote(e.target.value)}
-              placeholder="Share your thoughts, insights, or reflections on this verse..."
+              placeholder="Share your thoughts, insights, or reflections on this text..."
               rows={5}
-              className="resize-none border-gray-200 bg-white text-gray-900 placeholder:text-gray-400"
+              className="resize-none"
             />
           </div>
 
@@ -102,15 +104,15 @@ export default function AnnotationModal({
             <Button
               variant="outline"
               onClick={handleClose}
-              className="flex-1 h-11 border-gray-300 text-gray-700 hover:bg-gray-50"
+              className="flex-1"
               disabled={createAnnotationMutation.isPending}
             >
               Cancel
             </Button>
             <Button
               onClick={handleSave}
-              className="flex-1 h-11 bg-black hover:bg-gray-800 text-white font-medium"
-              disabled={!note.trim() || !verse || createAnnotationMutation.isPending}
+              className="flex-1"
+              disabled={!note.trim() || createAnnotationMutation.isPending}
             >
               {createAnnotationMutation.isPending ? "Saving..." : "Save Note"}
             </Button>
