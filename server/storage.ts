@@ -1,12 +1,13 @@
 import { 
-  users, annotations, bookmarks, readingProgress,
+  users, documents, annotations, bookmarks, readingProgress,
   type User, type InsertUser,
+  type Document, type InsertDocument,
   type Annotation, type InsertAnnotation,
   type Bookmark, type InsertBookmark,
   type ReadingProgress, type InsertReadingProgress
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, and } from "drizzle-orm";
+import { eq, and, like, or } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -14,9 +15,23 @@ export interface IStorage {
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   
+  // Documents
+  getDocuments(userId: number): Promise<Document[]>;
+  getDocument(id: number): Promise<Document | undefined>;
+  createDocument(document: InsertDocument & { userId: number }): Promise<Document>;
+  deleteDocument(id: number): Promise<boolean>;
+  searchDocuments(userId: number, query: string): Promise<Array<{
+    documentId: number;
+    documentTitle: string;
+    chapter: number;
+    paragraph: number;
+    text: string;
+    context: string;
+  }>>;
+  
   // Annotations
   getAnnotations(userId: number): Promise<Annotation[]>;
-  getAnnotationsByChapter(userId: number, book: string, chapter: number): Promise<Annotation[]>;
+  getAnnotationsByChapter(userId: number, documentId: number, chapter: number): Promise<Annotation[]>;
   createAnnotation(annotation: InsertAnnotation & { userId: number }): Promise<Annotation>;
   updateAnnotation(id: number, note: string): Promise<Annotation | undefined>;
   deleteAnnotation(id: number): Promise<boolean>;

@@ -8,12 +8,24 @@ export const users = pgTable("users", {
   password: text("password").notNull(),
 });
 
+// Documents table to store uploaded books/documents
+export const documents = pgTable("documents", {
+  id: serial("id").primaryKey(),
+  userId: integer("user_id").notNull(),
+  title: text("title").notNull(),
+  filename: text("filename").notNull(),
+  fileType: text("file_type").notNull(), // 'pdf' or 'txt'
+  totalChapters: integer("total_chapters").notNull(),
+  content: jsonb("content").notNull(), // Parsed content with chapters
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
 export const annotations = pgTable("annotations", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
-  book: text("book").notNull(),
+  documentId: integer("document_id").notNull(),
   chapter: integer("chapter").notNull(),
-  verse: integer("verse"),
+  paragraph: integer("paragraph"),
   selectedText: text("selected_text").notNull(),
   note: text("note").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -22,9 +34,9 @@ export const annotations = pgTable("annotations", {
 export const bookmarks = pgTable("bookmarks", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
-  book: text("book").notNull(),
+  documentId: integer("document_id").notNull(),
   chapter: integer("chapter").notNull(),
-  verse: integer("verse"),
+  paragraph: integer("paragraph"),
   title: text("title"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -32,7 +44,7 @@ export const bookmarks = pgTable("bookmarks", {
 export const readingProgress = pgTable("reading_progress", {
   id: serial("id").primaryKey(),
   userId: integer("user_id").notNull(),
-  book: text("book").notNull(),
+  documentId: integer("document_id").notNull(),
   chapter: integer("chapter").notNull(),
   completed: integer("completed").default(0).notNull(), // 0 = not started, 1 = completed
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -40,6 +52,12 @@ export const readingProgress = pgTable("reading_progress", {
 
 export const insertUserSchema = createInsertSchema(users).omit({
   id: true,
+});
+
+export const insertDocumentSchema = createInsertSchema(documents).omit({
+  id: true,
+  userId: true,
+  createdAt: true,
 });
 
 export const insertAnnotationSchema = createInsertSchema(annotations).omit({
@@ -63,6 +81,9 @@ export const insertReadingProgressSchema = createInsertSchema(readingProgress).o
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
 
+export type InsertDocument = z.infer<typeof insertDocumentSchema>;
+export type Document = typeof documents.$inferSelect;
+
 export type InsertAnnotation = z.infer<typeof insertAnnotationSchema>;
 export type Annotation = typeof annotations.$inferSelect;
 
@@ -72,19 +93,30 @@ export type Bookmark = typeof bookmarks.$inferSelect;
 export type InsertReadingProgress = z.infer<typeof insertReadingProgressSchema>;
 export type ReadingProgress = typeof readingProgress.$inferSelect;
 
-// Bible data types
-export interface BibleVerse {
+// Universal document interfaces
+export interface DocumentParagraph {
   number: number;
   text: string;
 }
 
-export interface BibleChapter {
-  book: string;
-  chapter: number;
-  verses: BibleVerse[];
+export interface DocumentChapter {
+  title: string;
+  number: number;
+  paragraphs: DocumentParagraph[];
 }
 
-export interface BibleBook {
-  name: string;
-  chapters: number;
+export interface ProcessedDocument {
+  title: string;
+  chapters: DocumentChapter[];
+  totalChapters: number;
+}
+
+// Search result interface
+export interface SearchResult {
+  documentId: number;
+  documentTitle: string;
+  chapter: number;
+  paragraph: number;
+  text: string;
+  context: string;
 }
