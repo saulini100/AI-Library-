@@ -2,11 +2,27 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import OpenAI from "openai";
-import { getBibleBooks, getBibleChapter, searchBible } from "./bible-data";
-import { insertAnnotationSchema, insertBookmarkSchema, insertReadingProgressSchema } from "@shared/schema";
+import multer from "multer";
+import { documentProcessor } from "./document-processor";
+import { insertDocumentSchema, insertAnnotationSchema, insertBookmarkSchema, insertReadingProgressSchema } from "@shared/schema";
 
 const openai = new OpenAI({ 
   apiKey: process.env.OPENAI_API_KEY || process.env.OPENAI_API_KEY_ENV_VAR || "default_key" 
+});
+
+// Configure multer for file uploads
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf' || file.mimetype === 'text/plain') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF and TXT files are allowed'));
+    }
+  }
 });
 
 export async function registerRoutes(app: Express): Promise<Server> {
@@ -34,42 +50,124 @@ export async function registerRoutes(app: Express): Promise<Server> {
     return user?.id || 1;
   };
 
-  // Bible content routes
-  app.get("/api/bible/books", async (req, res) => {
+  // Document management routes
+  app.get("/api/documents", async (req, res) => {
     try {
-      const books = getBibleBooks();
-      res.json(books);
+      const userId = await getDefaultUserId();
+      const documents = await storage.getDocuments(userId);
+      res.json(documents);
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch Bible books" });
+      console.error("Database error:", error);
+      res.status(500).json({ error: "Failed to fetch documents" });
     }
   });
 
-  app.get("/api/bible/:book/:chapter", async (req, res) => {
+  app.get("/api/documents/:id", async (req, res) => {
     try {
-      const { book, chapter } = req.params;
-      const chapterData = getBibleChapter(book, parseInt(chapter));
+      const { id } = req.params;
+      const document = await storage.getDocument(parseInt(id));
+      
+      if (!document) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+      
+      res.json(document);
+    } catch (error) {
+      console.error("Database error:", error);
+      res.status(500).json({ error: "Failed to fetch document" });
+    }
+  });
+
+  app.get("/api/documents/:id/:chapter", async (req, res) => {
+    try {
+      const { id, chapter } = req.params;
+      const document = await storage.getDocument(parseInt(id));
+      
+      if (!document) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+
+      const content = document.content as any;
+      const chapterData = content.chapters?.find((ch: any) => ch.number === parseInt(chapter));
       
       if (!chapterData) {
         return res.status(404).json({ error: "Chapter not found" });
       }
       
-      res.json(chapterData);
+      res.json({
+        document: { id: document.id, title: document.title },
+        chapter: chapterData
+      });
     } catch (error) {
-      res.status(500).json({ error: "Failed to fetch Bible chapter" });
+      console.error("Database error:", error);
+      res.status(500).json({ error: "Failed to fetch chapter" });
     }
   });
 
-  app.get("/api/bible/search", async (req, res) => {
+  app.post("/api/documents/upload", upload.single('file'), async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const userId = await getDefaultUserId();
+      const file = req.file;
+      
+      let processedDocument;
+
+      if (file.mimetype === 'application/pdf') {
+        processedDocument = await documentProcessor.processPDF(file.buffer, file.originalname);
+      } else if (file.mimetype === 'text/plain') {
+        processedDocument = await documentProcessor.processTXT(file.buffer, file.originalname);
+      } else {
+        return res.status(400).json({ error: "Unsupported file type" });
+      }
+
+      const document = await storage.createDocument({
+        title: processedDocument.title,
+        filename: file.originalname,
+        fileType: file.mimetype === 'application/pdf' ? 'pdf' : 'txt',
+        totalChapters: processedDocument.totalChapters,
+        content: processedDocument,
+        userId
+      });
+
+      res.json(document);
+    } catch (error) {
+      console.error("Upload error:", error);
+      res.status(500).json({ error: "Failed to process document" });
+    }
+  });
+
+  app.delete("/api/documents/:id", async (req, res) => {
+    try {
+      const { id } = req.params;
+      const success = await storage.deleteDocument(parseInt(id));
+      
+      if (!success) {
+        return res.status(404).json({ error: "Document not found" });
+      }
+      
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Database error:", error);
+      res.status(500).json({ error: "Failed to delete document" });
+    }
+  });
+
+  app.get("/api/search", async (req, res) => {
     try {
       const { q } = req.query;
       if (!q || typeof q !== "string") {
         return res.status(400).json({ error: "Search query is required" });
       }
       
-      const results = searchBible(q);
+      const userId = await getDefaultUserId();
+      const results = await storage.searchDocuments(userId, q);
       res.json(results);
     } catch (error) {
-      res.status(500).json({ error: "Failed to search Bible" });
+      console.error("Search error:", error);
+      res.status(500).json({ error: "Failed to search documents" });
     }
   });
 
@@ -85,11 +183,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/annotations/:book/:chapter", async (req, res) => {
+  app.get("/api/annotations/:documentId/:chapter", async (req, res) => {
     try {
-      const { book, chapter } = req.params;
+      const { documentId, chapter } = req.params;
       const userId = await getDefaultUserId();
-      const annotations = await storage.getAnnotationsByChapter(userId, book, parseInt(chapter));
+      const annotations = await storage.getAnnotationsByChapter(userId, parseInt(documentId), parseInt(chapter));
       res.json(annotations);
     } catch (error) {
       console.error("Database error:", error);

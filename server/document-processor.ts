@@ -10,8 +10,8 @@ export class DocumentProcessor {
       const text = data.text;
       
       return this.processText(text, filename);
-    } catch (error) {
-      throw new Error(`Failed to process PDF: ${error.message}`);
+    } catch (error: any) {
+      throw new Error(`Failed to process PDF: ${error?.message || 'Unknown error'}`);
     }
   }
 
