@@ -130,30 +130,27 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
 
   return (
     <>
-      {/* Mobile overlay */}
-      {isOpen && (
-        <div 
-          className="fixed inset-0 bg-black bg-opacity-50 z-20 lg:hidden"
-          onClick={onClose}
-        />
-      )}
-      
       {/* Sidebar */}
       <div className={`
-        w-80 bg-white dark:bg-slate-800 border-r border-gray-200 dark:border-slate-700 
-        flex flex-col transition-all duration-300 transform z-30 h-full
+        w-80 bg-sidebar text-sidebar-foreground border-r border-sidebar-border
+        flex flex-col transition-all duration-300 transform z-50 h-full
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
-        fixed lg:relative
+        fixed lg:relative shadow-lg lg:shadow-none
       `}>
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-gray-200 dark:border-slate-700">
-          <h1 className="text-xl font-semibold text-slate-900 dark:text-slate-100">
-            Scripture Study
-          </h1>
+        <div className="flex items-center justify-between p-6 border-b border-sidebar-border">
+          <div className="flex items-center space-x-3">
+            <div className="w-8 h-8 bg-sidebar-primary rounded-lg flex items-center justify-center">
+              <BookOpen className="h-4 w-4 text-sidebar-primary-foreground" />
+            </div>
+            <h1 className="text-lg font-semibold text-sidebar-foreground">
+              Scripture Studio
+            </h1>
+          </div>
           <Button
             variant="ghost"
             size="sm"
-            className="lg:hidden"
+            className="lg:hidden text-sidebar-foreground hover:bg-sidebar-accent"
             onClick={onClose}
           >
             <X className="h-4 w-4" />
@@ -163,16 +160,16 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
         {/* Content */}
         <div className="flex-1 overflow-hidden">
           <Tabs defaultValue="study" className="h-full flex flex-col">
-            <TabsList className="grid w-full grid-cols-3 mx-4 mt-4">
-              <TabsTrigger value="study" className="text-xs">
+            <TabsList className="grid w-full grid-cols-3 mx-6 mt-6 bg-sidebar-accent">
+              <TabsTrigger value="study" className="text-xs text-sidebar-foreground data-[state=active]:bg-sidebar-primary data-[state=active]:text-sidebar-primary-foreground">
                 <BookOpen className="h-4 w-4 mr-1" />
                 Study
               </TabsTrigger>
-              <TabsTrigger value="notes" className="text-xs">
+              <TabsTrigger value="notes" className="text-xs text-sidebar-foreground data-[state=active]:bg-sidebar-primary data-[state=active]:text-sidebar-primary-foreground">
                 <StickyNote className="h-4 w-4 mr-1" />
                 Notes
               </TabsTrigger>
-              <TabsTrigger value="ai" className="text-xs">
+              <TabsTrigger value="ai" className="text-xs text-sidebar-foreground data-[state=active]:bg-sidebar-primary data-[state=active]:text-sidebar-primary-foreground">
                 <Bot className="h-4 w-4 mr-1" />
                 AI
               </TabsTrigger>
@@ -181,14 +178,14 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
             <div className="flex-1 overflow-hidden">
               {/* Study Tab */}
               <TabsContent value="study" className="h-full m-0">
-                <ScrollArea className="h-full p-4">
-                  <div className="space-y-4">
+                <ScrollArea className="h-full p-6">
+                  <div className="space-y-6">
                     {/* Navigation Widget */}
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm">Navigation</CardTitle>
+                    <Card className="bg-sidebar-accent border-sidebar-border">
+                      <CardHeader className="pb-4">
+                        <CardTitle className="text-sm text-sidebar-foreground font-medium">Quick Navigation</CardTitle>
                       </CardHeader>
-                      <CardContent className="space-y-2">
+                      <CardContent className="space-y-3">
                         <Select 
                           value={currentBook} 
                           onValueChange={(book) => handleNavigation(book, 1)}
@@ -226,7 +223,7 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
                           />
                         </div>
                         <Button 
-                          className="w-full" 
+                          className="w-full bg-sidebar-primary text-sidebar-primary-foreground hover:bg-sidebar-primary/90" 
                           onClick={() => handleNavigation(currentBook, currentChapter)}
                         >
                           Go to Verse
