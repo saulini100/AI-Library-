@@ -44,26 +44,36 @@ function DocumentContent({ document, chapter, annotations, onTextSelected }: Doc
           </h2>
         </div>
 
-        <div className="space-y-8">
+        <div className="space-y-12 max-w-none">
           {paragraphs.map((paragraph, index) => {
             const hasAnnotation = annotations.some(
               (ann: any) => ann.paragraph === paragraph.number
             );
 
+            // Split text into sentences for better readability
+            const sentences = paragraph.text.split(/(?<=[.!?])\s+/).filter(s => s.trim());
+
             return (
               <div
                 key={paragraph.number}
                 className={`
-                  p-6 rounded-xl transition-all duration-300 cursor-pointer
-                  hover:bg-accent/50 group relative border border-border/20
-                  ${hasAnnotation ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500' : 'bg-card'}
-                  shadow-sm hover:shadow-md
+                  p-8 rounded-2xl transition-all duration-300 cursor-pointer
+                  hover:bg-accent/30 group relative border border-border/30
+                  ${hasAnnotation ? 'bg-blue-50 dark:bg-blue-900/20 border-l-4 border-blue-500' : 'bg-card/50'}
+                  shadow-lg hover:shadow-xl backdrop-blur-sm
                 `}
                 data-paragraph={paragraph.number}
               >
-                <p className="text-base leading-8 text-foreground select-text font-medium tracking-wide">
-                  {paragraph.text}
-                </p>
+                <div className="prose prose-lg max-w-none">
+                  <p className="text-xl leading-relaxed text-foreground select-text font-light tracking-wide m-0">
+                    {sentences.map((sentence, idx) => (
+                      <span key={idx} className="inline-block mr-2 mb-2">
+                        {sentence.trim()}
+                        {sentence.trim() && !sentence.trim().match(/[.!?]$/) && "."}
+                      </span>
+                    ))}
+                  </p>
+                </div>
                 
                 {hasAnnotation && (
                   <div className="mt-2 text-sm text-yellow-700 dark:text-yellow-300">
@@ -91,6 +101,9 @@ export default function DocumentReader() {
   const [darkMode, setDarkMode] = useState(false);
   const [selectedDocument, setSelectedDocument] = useState<Document | null>(null);
   const [currentChapter, setCurrentChapter] = useState(1);
+  const [annotationModalOpen, setAnnotationModalOpen] = useState(false);
+  const [selectedText, setSelectedText] = useState("");
+  const [selectedParagraph, setSelectedParagraph] = useState<number | null>(null);
 
   // Parse URL to get document and chapter
   const urlParts = location.split('/');
@@ -122,9 +135,16 @@ export default function DocumentReader() {
     navigate(`/reader/${document.id}/${chapter}`);
   };
 
-  const handleAddAnnotation = () => {
-    // This would open an annotation modal
-    console.log("Add annotation");
+  const handleTextSelected = (text: string, paragraph: number | null) => {
+    setSelectedText(text);
+    setSelectedParagraph(paragraph);
+    setAnnotationModalOpen(true);
+  };
+
+  const handleCloseAnnotationModal = () => {
+    setAnnotationModalOpen(false);
+    setSelectedText("");
+    setSelectedParagraph(null);
   };
 
   const toggleSidebar = () => setSidebarOpen(!sidebarOpen);
@@ -180,9 +200,19 @@ export default function DocumentReader() {
             document={selectedDocument}
             chapter={currentChapterData}
             annotations={annotations}
-            onAddAnnotation={handleAddAnnotation}
+            onTextSelected={handleTextSelected}
           />
         </div>
+
+        <AnnotationModal
+          isOpen={annotationModalOpen}
+          onClose={handleCloseAnnotationModal}
+          selectedText={selectedText}
+          documentId={selectedDocument.id}
+          documentTitle={selectedDocument.title}
+          chapter={currentChapter}
+          paragraph={selectedParagraph}
+        />
       </div>
     </div>
   );
