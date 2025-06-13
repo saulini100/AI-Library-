@@ -27,10 +27,13 @@ interface SidebarProps {
   onClose: () => void;
   currentBook: string;
   currentChapter: number;
+  documentId?: number;
+  totalChapters?: number;
+  onChapterSelect?: (chapter: number) => void;
   onToggle?: () => void;
 }
 
-export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }: SidebarProps) {
+export default function Sidebar({ isOpen, onClose, currentBook, currentChapter, documentId, totalChapters, onChapterSelect }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [aiQuery, setAiQuery] = useState('');
   const [chapterInput, setChapterInput] = useState(currentChapter.toString());

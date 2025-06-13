@@ -27,7 +27,8 @@ function DocumentContent({ document, chapter, annotations, onAddAnnotation }: Do
   });
 
   useEffect(() => {
-    startSelection();
+    const cleanup = startSelection();
+    return cleanup;
   }, [startSelection]);
 
   return (
@@ -175,7 +176,7 @@ export default function DocumentReader() {
             currentChapter={currentChapter}
             documentId={selectedDocument.id}
             totalChapters={selectedDocument.totalChapters}
-            onChapterSelect={(chapter) => handleDocumentSelect(selectedDocument, chapter)}
+            onChapterSelect={(chapter: number) => handleDocumentSelect(selectedDocument, chapter)}
           />
           
           <DocumentContent

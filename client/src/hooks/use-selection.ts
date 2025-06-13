@@ -1,7 +1,7 @@
-import { useCallback } from "react";
+import { useCallback, useEffect } from "react";
 
 interface UseSelectionProps {
-  onSelection: (text: string, verse: number | null) => void;
+  onSelection: (text: string, paragraph: number | null) => void;
 }
 
 export function useSelection({ onSelection }: UseSelectionProps) {
@@ -11,32 +11,39 @@ export function useSelection({ onSelection }: UseSelectionProps) {
 
     const selectedText = selection.toString().trim();
     
-    // Try to find the verse number from the selection's context
-    let verse: number | null = null;
+    // Try to find the paragraph number from the selection's context
+    let paragraph: number | null = null;
     const range = selection.getRangeAt(0);
     const commonAncestor = range.commonAncestorContainer;
     
-    // Walk up the DOM to find the verse container
+    // Walk up the DOM to find the paragraph container
     let element = commonAncestor.nodeType === Node.TEXT_NODE 
       ? commonAncestor.parentElement 
       : commonAncestor as Element;
       
-    while (element && !element.hasAttribute?.('data-verse')) {
+    while (element && !element.hasAttribute?.('data-paragraph')) {
       element = element.parentElement;
     }
     
-    if (element && element.hasAttribute('data-verse')) {
-      verse = parseInt(element.getAttribute('data-verse') || '0');
+    if (element && element.hasAttribute('data-paragraph')) {
+      paragraph = parseInt(element.getAttribute('data-paragraph') || '0');
     }
 
     // Clear the selection
     selection.removeAllRanges();
     
-    // Only trigger if we have both text and verse
-    if (selectedText && verse) {
-      onSelection(selectedText, verse);
+    // Trigger callback with selected text
+    if (selectedText) {
+      onSelection(selectedText, paragraph);
     }
   }, [onSelection]);
 
-  return { handleTextSelection };
+  const startSelection = useCallback(() => {
+    document.addEventListener('mouseup', handleTextSelection);
+    return () => {
+      document.removeEventListener('mouseup', handleTextSelection);
+    };
+  }, [handleTextSelection]);
+
+  return { handleTextSelection, startSelection };
 }
