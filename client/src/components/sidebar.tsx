@@ -232,32 +232,32 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
                     </Card>
 
                     {/* Search Widget */}
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm">Search</CardTitle>
+                    <Card className="bg-sidebar-accent border-sidebar-border">
+                      <CardHeader className="pb-4">
+                        <CardTitle className="text-sm text-sidebar-foreground font-medium">Scripture Search</CardTitle>
                       </CardHeader>
                       <CardContent>
                         <div className="relative mb-3">
-                          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-gray-400" />
+                          <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-sidebar-muted-foreground" />
                           <Input
                             placeholder="Search verses..."
                             value={searchQuery}
                             onChange={(e) => setSearchQuery(e.target.value)}
-                            className="pl-8"
+                            className="pl-8 bg-sidebar border-sidebar-border text-sidebar-foreground placeholder:text-sidebar-muted-foreground"
                           />
                         </div>
-                        {searchResults && searchResults.length > 0 && (
+                        {searchResults && Array.isArray(searchResults) && searchResults.length > 0 && (
                           <div className="space-y-2 max-h-32 overflow-y-auto">
                             {searchResults.map((result: any, index: number) => (
                               <div
                                 key={index}
-                                className="p-2 hover:bg-gray-100 dark:hover:bg-slate-600 rounded cursor-pointer"
+                                className="p-3 hover:bg-sidebar-primary/10 rounded-lg cursor-pointer transition-colors border border-sidebar-border"
                                 onClick={() => handleNavigation(result.book, result.chapter)}
                               >
-                                <div className="font-medium text-sm">
+                                <div className="font-medium text-sm text-sidebar-foreground">
                                   {result.book} {result.chapter}:{result.verse}
                                 </div>
-                                <div className="text-gray-600 dark:text-gray-300 text-xs truncate">
+                                <div className="text-sidebar-muted-foreground text-xs truncate mt-1">
                                   {result.text}
                                 </div>
                               </div>
@@ -268,34 +268,35 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
                     </Card>
 
                     {/* Bookmarks Widget */}
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm">Bookmarks</CardTitle>
+                    <Card className="bg-sidebar-accent border-sidebar-border">
+                      <CardHeader className="pb-4">
+                        <CardTitle className="text-sm text-sidebar-foreground font-medium">Saved Bookmarks</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="space-y-2">
-                          {bookmarks?.map((bookmark: any) => (
+                        <div className="space-y-3">
+                          {bookmarks && Array.isArray(bookmarks) && bookmarks.map((bookmark: any) => (
                             <div
                               key={bookmark.id}
-                              className="flex items-center justify-between p-2 hover:bg-gray-100 dark:hover:bg-slate-600 rounded cursor-pointer"
+                              className="flex items-center justify-between p-3 hover:bg-sidebar-primary/10 rounded-lg cursor-pointer transition-colors border border-sidebar-border"
                               onClick={() => handleNavigation(bookmark.book, bookmark.chapter)}
                             >
-                              <div>
-                                <div className="font-medium text-sm">
+                              <div className="flex-1">
+                                <div className="font-medium text-sm text-sidebar-foreground">
                                   {bookmark.book} {bookmark.chapter}
                                   {bookmark.verse && `:${bookmark.verse}`}
                                 </div>
                                 {bookmark.title && (
-                                  <div className="text-xs text-gray-600 dark:text-gray-300">
+                                  <div className="text-xs text-sidebar-muted-foreground mt-1">
                                     {bookmark.title}
                                   </div>
                                 )}
                               </div>
                               <div className="flex items-center space-x-1">
-                                <Bookmark className="h-4 w-4 text-amber-500" />
+                                <Bookmark className="h-4 w-4 text-sidebar-primary" />
                                 <Button
                                   variant="ghost"
                                   size="sm"
+                                  className="h-6 w-6 p-0 text-sidebar-muted-foreground hover:text-destructive hover:bg-destructive/10"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     deleteBookmarkMutation.mutate(bookmark.id);
@@ -306,24 +307,27 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
                               </div>
                             </div>
                           ))}
-                          {(!bookmarks || bookmarks.length === 0) && (
-                            <p className="text-sm text-gray-500 text-center py-4">
-                              No bookmarks yet
-                            </p>
+                          {(!bookmarks || !Array.isArray(bookmarks) || bookmarks.length === 0) && (
+                            <div className="text-center py-8">
+                              <Bookmark className="h-8 w-8 text-sidebar-muted-foreground mx-auto mb-2" />
+                              <p className="text-sm text-sidebar-muted-foreground">
+                                No bookmarks saved yet
+                              </p>
+                            </div>
                           )}
                         </div>
                       </CardContent>
                     </Card>
 
                     {/* Reading Plan Widget */}
-                    <Card>
-                      <CardHeader className="pb-3">
-                        <CardTitle className="text-sm">Today's Reading</CardTitle>
+                    <Card className="bg-sidebar-accent border-sidebar-border">
+                      <CardHeader className="pb-4">
+                        <CardTitle className="text-sm text-sidebar-foreground font-medium">Reading Progress</CardTitle>
                       </CardHeader>
                       <CardContent>
-                        <div className="space-y-2">
-                          {readingProgress?.slice(0, 3).map((progress: any) => (
-                            <div key={progress.id} className="flex items-center space-x-2">
+                        <div className="space-y-3">
+                          {readingProgress && Array.isArray(readingProgress) && readingProgress.slice(0, 3).map((progress: any) => (
+                            <div key={progress.id} className="flex items-center space-x-3 p-2 rounded-lg hover:bg-sidebar-primary/10 transition-colors">
                               <Checkbox
                                 checked={progress.completed === 1}
                                 onCheckedChange={(checked) => {
@@ -333,12 +337,13 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
                                     completed: checked ? 1 : 0
                                   });
                                 }}
+                                className="border-sidebar-border data-[state=checked]:bg-sidebar-primary data-[state=checked]:border-sidebar-primary"
                               />
                               <span 
-                                className={`text-sm cursor-pointer ${
+                                className={`text-sm cursor-pointer flex-1 ${
                                   progress.completed === 1 
-                                    ? 'line-through text-gray-600 dark:text-gray-300' 
-                                    : ''
+                                    ? 'line-through text-sidebar-muted-foreground' 
+                                    : 'text-sidebar-foreground'
                                 }`}
                                 onClick={() => handleNavigation(progress.book, progress.chapter)}
                               >
@@ -346,14 +351,23 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
                               </span>
                             </div>
                           ))}
+                          {(!readingProgress || !Array.isArray(readingProgress) || readingProgress.length === 0) && (
+                            <div className="text-center py-6">
+                              <BookOpen className="h-6 w-6 text-sidebar-muted-foreground mx-auto mb-2" />
+                              <p className="text-xs text-sidebar-muted-foreground">
+                                No reading plan set
+                              </p>
+                            </div>
+                          )}
                         </div>
-                        <div className="mt-3 pt-3 border-t border-gray-200 dark:border-slate-600">
-                          <div className="text-xs text-gray-600 dark:text-gray-300">
-                            Progress: {progressCompleted} of {progressTotal} completed
+                        <div className="mt-4 pt-4 border-t border-sidebar-border">
+                          <div className="flex items-center justify-between text-xs text-sidebar-muted-foreground mb-2">
+                            <span>Progress</span>
+                            <span>{progressCompleted} of {progressTotal}</span>
                           </div>
-                          <div className="w-full bg-gray-200 dark:bg-slate-600 rounded-full h-1.5 mt-1">
+                          <div className="w-full bg-sidebar border border-sidebar-border rounded-full h-2">
                             <div 
-                              className="bg-primary h-1.5 rounded-full transition-all duration-300" 
+                              className="bg-sidebar-primary h-2 rounded-full transition-all duration-500" 
                               style={{ width: `${progressPercentage}%` }}
                             />
                           </div>

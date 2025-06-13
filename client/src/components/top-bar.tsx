@@ -31,35 +31,40 @@ export default function TopBar({
   };
 
   return (
-    <header className="bg-white dark:bg-slate-800 border-b border-gray-200 dark:border-slate-700 px-6 py-4">
+    <header className="bg-card border-b border-border px-6 py-4 shadow-sm">
       <div className="flex items-center justify-between">
         <div className="flex items-center space-x-4">
           <Button
             variant="ghost"
             size="sm"
-            className="lg:hidden"
+            className="lg:hidden text-muted-foreground hover:text-foreground"
             onClick={onToggleSidebar}
           >
-            <Menu className="h-4 w-4" />
+            <Menu className="h-5 w-5" />
           </Button>
-          <div className="flex items-center space-x-2">
-            <span className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-              {book} {chapter}
-            </span>
-            <span className="text-sm text-gray-600 dark:text-gray-400">
-              New International Version
-            </span>
+          <div className="flex items-center space-x-3">
+            <div className="flex items-center space-x-2">
+              <div className="w-2 h-2 bg-primary rounded-full"></div>
+              <span className="text-xl font-semibold text-foreground">
+                {book} {chapter}
+              </span>
+            </div>
+            <div className="hidden sm:flex items-center">
+              <span className="text-sm text-muted-foreground bg-muted px-2 py-1 rounded-md">
+                NIV
+              </span>
+            </div>
           </div>
         </div>
 
-        <div className="flex items-center space-x-3">
+        <div className="flex items-center space-x-4">
           {/* Audio Controls */}
-          <div className="flex items-center space-x-2 bg-gray-100 dark:bg-slate-700 rounded-lg px-3 py-2">
+          <div className="flex items-center space-x-3 bg-muted/50 border border-border rounded-xl px-4 py-2">
             <Button
               variant="ghost"
               size="sm"
               onClick={onTogglePlayback}
-              className="p-1 h-8 w-8"
+              className="h-8 w-8 p-0 hover:bg-primary/10"
             >
               {isPlaying ? (
                 <Pause className="h-4 w-4 text-primary" />
@@ -69,23 +74,23 @@ export default function TopBar({
             </Button>
             
             {isPlaying && (
-              <div className="flex items-center space-x-0.5">
-                {[...Array(5)].map((_, i) => (
+              <div className="flex items-center space-x-1">
+                {[...Array(4)].map((_, i) => (
                   <div
                     key={i}
                     className="w-1 bg-primary rounded-full animate-pulse"
                     style={{
-                      height: `${Math.random() * 16 + 8}px`,
-                      animationDelay: `${i * 0.1}s`,
+                      height: `${Math.random() * 12 + 6}px`,
+                      animationDelay: `${i * 0.15}s`,
                     }}
                   />
                 ))}
               </div>
             )}
             
-            <span className="text-xs text-gray-600 dark:text-gray-400 ml-2">
+            <div className="text-xs text-muted-foreground font-mono">
               {formatTime(currentTime)} / {formatTime(duration)}
-            </span>
+            </div>
           </div>
 
           {/* Settings */}
@@ -93,7 +98,7 @@ export default function TopBar({
             <Button
               variant="ghost"
               size="sm"
-              className="p-2"
+              className="h-9 w-9 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
             >
               <Type className="h-4 w-4" />
             </Button>
@@ -101,7 +106,7 @@ export default function TopBar({
               variant="ghost"
               size="sm"
               onClick={onToggleDarkMode}
-              className="p-2"
+              className="h-9 w-9 p-0 text-muted-foreground hover:text-foreground hover:bg-muted"
             >
               {darkMode ? (
                 <Sun className="h-4 w-4" />
