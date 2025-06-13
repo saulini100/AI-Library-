@@ -190,6 +190,82 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  // Document methods
+  async getDocuments(userId: number): Promise<Document[]> {
+    return await db
+      .select()
+      .from(documents)
+      .where(eq(documents.userId, userId))
+      .orderBy(documents.createdAt);
+  }
+
+  async getDocument(id: number): Promise<Document | undefined> {
+    const [document] = await db.select().from(documents).where(eq(documents.id, id));
+    return document || undefined;
+  }
+
+  async createDocument(document: InsertDocument & { userId: number }): Promise<Document> {
+    const [newDocument] = await db
+      .insert(documents)
+      .values(document)
+      .returning();
+    return newDocument;
+  }
+
+  async deleteDocument(id: number): Promise<boolean> {
+    const result = await db
+      .delete(documents)
+      .where(eq(documents.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async searchDocuments(userId: number, query: string): Promise<Array<{
+    documentId: number;
+    documentTitle: string;
+    chapter: number;
+    paragraph: number;
+    text: string;
+    context: string;
+  }>> {
+    // This is a simplified search - in production, you'd want full-text search
+    const userDocuments = await this.getDocuments(userId);
+    const results: Array<{
+      documentId: number;
+      documentTitle: string;
+      chapter: number;
+      paragraph: number;
+      text: string;
+      context: string;
+    }> = [];
+
+    const searchTerm = query.toLowerCase();
+
+    for (const doc of userDocuments) {
+      const content = doc.content as any;
+      if (content.chapters) {
+        for (const chapter of content.chapters) {
+          for (const paragraph of chapter.paragraphs) {
+            if (paragraph.text.toLowerCase().includes(searchTerm)) {
+              const contextStart = Math.max(0, paragraph.text.toLowerCase().indexOf(searchTerm) - 50);
+              const contextEnd = Math.min(paragraph.text.length, paragraph.text.toLowerCase().indexOf(searchTerm) + searchTerm.length + 50);
+              
+              results.push({
+                documentId: doc.id,
+                documentTitle: doc.title,
+                chapter: chapter.number,
+                paragraph: paragraph.number,
+                text: paragraph.text,
+                context: '...' + paragraph.text.substring(contextStart, contextEnd) + '...'
+              });
+            }
+          }
+        }
+      }
+    }
+
+    return results;
+  }
+
   async getAnnotations(userId: number): Promise<Annotation[]> {
     return await db
       .select()
@@ -197,13 +273,13 @@ export class DatabaseStorage implements IStorage {
       .where(eq(annotations.userId, userId));
   }
 
-  async getAnnotationsByChapter(userId: number, book: string, chapter: number): Promise<Annotation[]> {
+  async getAnnotationsByChapter(userId: number, documentId: number, chapter: number): Promise<Annotation[]> {
     return await db
       .select()
       .from(annotations)
       .where(and(
         eq(annotations.userId, userId),
-        eq(annotations.book, book),
+        eq(annotations.documentId, documentId),
         eq(annotations.chapter, chapter)
       ));
   }
