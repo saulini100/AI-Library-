@@ -5,6 +5,8 @@ import {
   type Bookmark, type InsertBookmark,
   type ReadingProgress, type InsertReadingProgress
 } from "@shared/schema";
+import { db } from "./db";
+import { eq, and } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -153,4 +155,126 @@ export class MemStorage implements IStorage {
   }
 }
 
-export const storage = new MemStorage();
+// Database Storage Implementation
+export class DatabaseStorage implements IStorage {
+  async getUser(id: number): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
+  }
+
+  async getUserByUsername(username: string): Promise<User | undefined> {
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
+  }
+
+  async createUser(insertUser: InsertUser): Promise<User> {
+    const [user] = await db
+      .insert(users)
+      .values(insertUser)
+      .returning();
+    return user;
+  }
+
+  async getAnnotations(userId: number): Promise<Annotation[]> {
+    return await db
+      .select()
+      .from(annotations)
+      .where(eq(annotations.userId, userId));
+  }
+
+  async getAnnotationsByChapter(userId: number, book: string, chapter: number): Promise<Annotation[]> {
+    return await db
+      .select()
+      .from(annotations)
+      .where(and(
+        eq(annotations.userId, userId),
+        eq(annotations.book, book),
+        eq(annotations.chapter, chapter)
+      ));
+  }
+
+  async createAnnotation(annotation: InsertAnnotation & { userId: number }): Promise<Annotation> {
+    const [newAnnotation] = await db
+      .insert(annotations)
+      .values(annotation)
+      .returning();
+    return newAnnotation;
+  }
+
+  async updateAnnotation(id: number, note: string): Promise<Annotation | undefined> {
+    const [updated] = await db
+      .update(annotations)
+      .set({ note })
+      .where(eq(annotations.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteAnnotation(id: number): Promise<boolean> {
+    const result = await db
+      .delete(annotations)
+      .where(eq(annotations.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getBookmarks(userId: number): Promise<Bookmark[]> {
+    return await db
+      .select()
+      .from(bookmarks)
+      .where(eq(bookmarks.userId, userId));
+  }
+
+  async createBookmark(bookmark: InsertBookmark & { userId: number }): Promise<Bookmark> {
+    const [newBookmark] = await db
+      .insert(bookmarks)
+      .values(bookmark)
+      .returning();
+    return newBookmark;
+  }
+
+  async deleteBookmark(id: number): Promise<boolean> {
+    const result = await db
+      .delete(bookmarks)
+      .where(eq(bookmarks.id, id));
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getReadingProgress(userId: number): Promise<ReadingProgress[]> {
+    return await db
+      .select()
+      .from(readingProgress)
+      .where(eq(readingProgress.userId, userId));
+  }
+
+  async updateReadingProgress(progress: InsertReadingProgress & { userId: number }): Promise<ReadingProgress> {
+    // Check if progress already exists for this user/book/chapter
+    const [existing] = await db
+      .select()
+      .from(readingProgress)
+      .where(eq(readingProgress.userId, progress.userId))
+      .where(eq(readingProgress.book, progress.book))
+      .where(eq(readingProgress.chapter, progress.chapter));
+
+    if (existing) {
+      // Update existing record
+      const [updated] = await db
+        .update(readingProgress)
+        .set({
+          completedAt: progress.completedAt,
+          timeSpent: progress.timeSpent
+        })
+        .where(eq(readingProgress.id, existing.id))
+        .returning();
+      return updated;
+    } else {
+      // Create new record
+      const [newProgress] = await db
+        .insert(readingProgress)
+        .values(progress)
+        .returning();
+      return newProgress;
+    }
+  }
+}
+
+export const storage = new DatabaseStorage();
