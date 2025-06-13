@@ -1,10 +1,11 @@
 import { Button } from "@/components/ui/button";
-import { Menu, Play, Pause, Sun, Moon, Type } from "lucide-react";
+import { Menu, Play, Pause, Sun, Moon, Type, PanelLeftOpen, PanelLeftClose } from "lucide-react";
 
 interface TopBarProps {
   book: string;
   chapter: number;
   onToggleSidebar: () => void;
+  sidebarOpen?: boolean;
   isPlaying: boolean;
   onTogglePlayback: () => void;
   currentTime: number;

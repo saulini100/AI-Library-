@@ -27,6 +27,7 @@ interface SidebarProps {
   onClose: () => void;
   currentBook: string;
   currentChapter: number;
+  onToggle?: () => void;
 }
 
 export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }: SidebarProps) {
@@ -75,52 +76,59 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
     <>
       {/* Sidebar */}
       <div className={`
-        w-80 bg-white border-r border-gray-200
-        flex flex-col transition-all duration-300 transform z-50 h-full
-        ${isOpen ? 'translate-x-0' : '-translate-x-full'}
-        fixed lg:relative
+        bg-white border-r border-gray-200
+        flex flex-col transition-all duration-300 ease-in-out transform z-50 h-full
+        ${isOpen ? 'w-80 translate-x-0' : 'w-16 lg:w-16'}
+        fixed lg:relative shadow-lg lg:shadow-none
       `}>
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
-          <div className="flex items-center space-x-3">
+          <div className={`flex items-center transition-all duration-300 ${isOpen ? 'space-x-3' : 'justify-center'}`}>
             <div className="w-8 h-8 bg-black rounded-lg flex items-center justify-center">
               <BookOpen className="h-4 w-4 text-white" />
             </div>
-            <h1 className="text-lg font-semibold text-gray-900">
-              Scripture
-            </h1>
+            {isOpen && (
+              <h1 className="text-lg font-semibold text-gray-900 animate-in fade-in duration-200">
+                Scripture
+              </h1>
+            )}
           </div>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="lg:hidden text-gray-500 hover:bg-gray-100"
-            onClick={onClose}
-          >
-            <X className="h-4 w-4" />
-          </Button>
+          {isOpen && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="lg:hidden text-gray-500 hover:bg-gray-100"
+              onClick={onClose}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          )}
         </div>
 
         {/* User Profile */}
-        <div className="p-6 border-b border-gray-100">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
-              <User className="h-5 w-5 text-gray-600" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-gray-900">Hello, Reader</p>
-              <p className="text-xs text-gray-500">Continue your study journey</p>
+        {isOpen && (
+          <div className="p-6 border-b border-gray-100 animate-in fade-in duration-200">
+            <div className="flex items-center space-x-3">
+              <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center">
+                <User className="h-5 w-5 text-gray-600" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-gray-900">Hello, Reader</p>
+                <p className="text-xs text-gray-500">Continue your study journey</p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
         {/* Content */}
         <div className="flex-1 overflow-hidden">
-          <Tabs defaultValue="study" className="h-full flex flex-col">
-            <TabsList className="grid w-full grid-cols-3 mx-6 mt-6 bg-gray-100">
-              <TabsTrigger value="study" className="text-xs">Study</TabsTrigger>
-              <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
-              <TabsTrigger value="ai" className="text-xs">AI</TabsTrigger>
-            </TabsList>
+          {isOpen ? (
+            <Tabs defaultValue="study" className="h-full flex flex-col">
+              <TabsList className="grid w-full grid-cols-3 mx-6 mt-6 bg-gray-100">
+                <TabsTrigger value="study" className="text-xs">Study</TabsTrigger>
+                <TabsTrigger value="notes" className="text-xs">Notes</TabsTrigger>
+                <TabsTrigger value="ai" className="text-xs">AI</TabsTrigger>
+              </TabsList>
 
             <div className="flex-1 overflow-hidden">
               {/* Study Tab */}
@@ -358,7 +366,36 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
                 </ScrollArea>
               </TabsContent>
             </div>
-          </Tabs>
+            </Tabs>
+          ) : (
+            // Collapsed sidebar - show icons only
+            <div className="flex flex-col items-center py-6 space-y-4">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-10 h-10 p-0 text-gray-600 hover:bg-gray-100"
+                title="Study"
+              >
+                <BookOpen className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-10 h-10 p-0 text-gray-600 hover:bg-gray-100"
+                title="Notes"
+              >
+                <StickyNote className="h-5 w-5" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-10 h-10 p-0 text-gray-600 hover:bg-gray-100"
+                title="AI Assistant"
+              >
+                <Bot className="h-5 w-5" />
+              </Button>
+            </div>
+          )}
         </div>
       </div>
 
