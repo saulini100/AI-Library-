@@ -18,6 +18,7 @@ export default function TopBar({
   book,
   chapter,
   onToggleSidebar,
+  sidebarOpen = true,
   isPlaying,
   onTogglePlayback,
   currentTime,
@@ -38,10 +39,14 @@ export default function TopBar({
           <Button
             variant="ghost"
             size="sm"
-            className="lg:hidden text-gray-600 hover:bg-gray-100"
+            className="text-gray-600 hover:bg-gray-100 transition-colors"
             onClick={onToggleSidebar}
           >
-            <Menu className="h-5 w-5" />
+            {sidebarOpen ? (
+              <PanelLeftClose className="h-5 w-5" />
+            ) : (
+              <PanelLeftOpen className="h-5 w-5" />
+            )}
           </Button>
           <div>
             <h1 className="text-xl font-semibold text-gray-900">

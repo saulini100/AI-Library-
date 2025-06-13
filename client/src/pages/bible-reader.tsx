@@ -111,6 +111,7 @@ export default function BibleReader() {
           book={book}
           chapter={parseInt(chapter)}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
+          sidebarOpen={sidebarOpen}
           isPlaying={isPlaying}
           onTogglePlayback={togglePlayback}
           currentTime={currentTime}

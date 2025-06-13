@@ -80,6 +80,7 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
         flex flex-col transition-all duration-300 ease-in-out transform z-50 h-full
         ${isOpen ? 'w-80 translate-x-0' : 'w-16 lg:w-16'}
         fixed lg:relative shadow-lg lg:shadow-none
+        hover:shadow-xl transition-shadow
       `}>
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-100">
@@ -369,28 +370,31 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
             </Tabs>
           ) : (
             // Collapsed sidebar - show icons only
-            <div className="flex flex-col items-center py-6 space-y-4">
+            <div className="flex flex-col items-center py-6 space-y-4 animate-in fade-in duration-200">
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-10 h-10 p-0 text-gray-600 hover:bg-gray-100"
+                className="w-10 h-10 p-0 text-gray-600 hover:bg-gray-100 hover:scale-110 transition-all duration-200"
                 title="Study"
+                onClick={() => onClose && onClose()}
               >
                 <BookOpen className="h-5 w-5" />
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-10 h-10 p-0 text-gray-600 hover:bg-gray-100"
+                className="w-10 h-10 p-0 text-gray-600 hover:bg-gray-100 hover:scale-110 transition-all duration-200"
                 title="Notes"
+                onClick={() => onClose && onClose()}
               >
                 <StickyNote className="h-5 w-5" />
               </Button>
               <Button
                 variant="ghost"
                 size="sm"
-                className="w-10 h-10 p-0 text-gray-600 hover:bg-gray-100"
+                className="w-10 h-10 p-0 text-gray-600 hover:bg-gray-100 hover:scale-110 transition-all duration-200"
                 title="AI Assistant"
+                onClick={() => onClose && onClose()}
               >
                 <Bot className="h-5 w-5" />
               </Button>

@@ -58,15 +58,15 @@ export default function BibleContent({ chapterData, annotations, onAddAnnotation
   }, {} as Record<number, any[]>) || {};
 
   return (
-    <main className="flex-1 overflow-auto bg-gray-50">
-      <div className="max-w-4xl mx-auto px-8 py-10">
+    <main className="flex-1 overflow-auto bg-gray-50 transition-all duration-300">
+      <div className="max-w-4xl mx-auto px-8 py-10 animate-in fade-in duration-500">
         {/* Chapter Header */}
-        <div className="bg-white rounded-lg p-8 mb-8 border border-gray-200">
+        <div className="bg-white rounded-lg p-8 mb-8 border border-gray-200 shadow-sm hover:shadow-md transition-shadow duration-300">
           <div className="text-center">
-            <h1 className="text-3xl font-semibold text-gray-900 mb-2">
+            <h1 className="text-3xl font-semibold text-gray-900 mb-2 animate-in slide-in-from-top duration-700">
               {chapterData.book} Chapter {chapterData.chapter}
             </h1>
-            <p className="text-gray-500 text-sm">
+            <p className="text-gray-500 text-sm animate-in fade-in duration-700 delay-200">
               New International Version
             </p>
           </div>
@@ -78,12 +78,16 @@ export default function BibleContent({ chapterData, annotations, onAddAnnotation
             const verseAnnotations = annotationsByVerse[verse.number] || [];
             
             return (
-              <div key={verse.number} className="group relative">
+              <div 
+                key={verse.number} 
+                className="group relative animate-in slide-in-from-left duration-300"
+                style={{ animationDelay: `${verse.number * 50}ms` }}
+              >
                 <div className={`
-                  flex items-start space-x-4 p-6 rounded-lg border transition-all duration-200
+                  flex items-start space-x-4 p-6 rounded-lg border transition-all duration-300 hover:scale-[1.02]
                   ${verseAnnotations.length > 0 
-                    ? 'bg-blue-50 border-blue-200' 
-                    : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-sm'
+                    ? 'bg-blue-50 border-blue-200 shadow-sm' 
+                    : 'bg-white border-gray-200 hover:border-gray-300 hover:shadow-md'
                   }
                 `}>
                   <div className={`
