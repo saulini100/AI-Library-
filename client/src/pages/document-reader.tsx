@@ -190,7 +190,7 @@ export default function DocumentReader() {
           onGoHome={handleGoHome}
         />
         
-        <div className="flex">
+        <div className="flex relative">
           <Sidebar
             isOpen={sidebarOpen}
             onClose={() => setSidebarOpen(false)}
@@ -202,12 +202,16 @@ export default function DocumentReader() {
             onGoHome={handleGoHome}
           />
           
-          <DocumentContent
-            document={selectedDocument}
-            chapter={currentChapterData}
-            annotations={annotations}
-            onTextSelected={handleTextSelected}
-          />
+          <div className={`flex-1 transition-all duration-300 ease-in-out ${
+            sidebarOpen ? 'ml-80' : 'ml-0'
+          }`}>
+            <DocumentContent
+              document={selectedDocument}
+              chapter={currentChapterData}
+              annotations={annotations}
+              onTextSelected={handleTextSelected}
+            />
+          </div>
         </div>
 
         <AnnotationModal
