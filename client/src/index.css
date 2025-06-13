@@ -75,16 +75,27 @@
   }
 }
 
-/* Custom styles for Bible reading */
-.verse-number {
-  font-size: 0.75rem;
-  vertical-align: super;
-  color: hsl(215, 16%, 47%);
-  font-weight: 500;
+/* Custom styles for modern Bible reading */
+.glass-effect {
+  backdrop-filter: blur(10px);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
-.dark .verse-number {
-  color: hsl(215, 20%, 65%);
+.dark .glass-effect {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.gradient-border {
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(var(--accent)) 100%);
+  padding: 1px;
+  border-radius: 12px;
+}
+
+.gradient-border-inner {
+  background: hsl(var(--background));
+  border-radius: 11px;
 }
 
 .annotation-highlight {

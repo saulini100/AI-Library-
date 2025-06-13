@@ -124,8 +124,8 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter }
     }
   };
 
-  const progressCompleted = readingProgress?.filter((p: any) => p.completed === 1).length || 0;
-  const progressTotal = readingProgress?.length || 1;
+  const progressCompleted = (readingProgress && Array.isArray(readingProgress)) ? readingProgress.filter((p: any) => p.completed === 1).length : 0;
+  const progressTotal = (readingProgress && Array.isArray(readingProgress)) ? readingProgress.length : 1;
   const progressPercentage = Math.round((progressCompleted / progressTotal) * 100);
 
   return (
