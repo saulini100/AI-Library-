@@ -10,7 +10,8 @@ import {
   User,
   Activity,
   FileText,
-  ChevronDown
+  ChevronDown,
+  Home
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -25,9 +26,10 @@ interface SidebarProps {
   totalChapters?: number;
   onChapterSelect?: (chapter: number) => void;
   onToggle?: () => void;
+  onGoHome?: () => void;
 }
 
-export default function Sidebar({ isOpen, onClose, currentBook, currentChapter, documentId, totalChapters, onChapterSelect }: SidebarProps) {
+export default function Sidebar({ isOpen, onClose, currentBook, currentChapter, documentId, totalChapters, onChapterSelect, onGoHome }: SidebarProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [chapterInput, setChapterInput] = useState(currentChapter.toString());
   const [activeSection, setActiveSection] = useState<string | null>(null);
@@ -107,6 +109,19 @@ export default function Sidebar({ isOpen, onClose, currentBook, currentChapter, 
         {/* Content */}
         <ScrollArea className="flex-1 px-6">
           <div className="space-y-6 py-6">
+            {/* Home Button */}
+            {onGoHome && (
+              <div>
+                <Button
+                  onClick={onGoHome}
+                  className="w-full justify-start bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  <Home className="w-4 h-4 mr-3" />
+                  Back to Library
+                </Button>
+              </div>
+            )}
+
             {/* Reading Progress */}
             <div className="grid grid-cols-2 gap-4">
               <div className="bg-blue-50 dark:bg-blue-900/20 rounded-xl p-4 text-center">

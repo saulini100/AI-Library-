@@ -199,6 +199,7 @@ export default function DocumentReader() {
             documentId={selectedDocument.id}
             totalChapters={selectedDocument.totalChapters}
             onChapterSelect={(chapter: number) => handleDocumentSelect(selectedDocument, chapter)}
+            onGoHome={handleGoHome}
           />
           
           <DocumentContent
