@@ -3,14 +3,14 @@ import { queryClient } from "./lib/queryClient";
 import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import BibleReader from "@/pages/bible-reader";
+import DocumentReader from "@/pages/document-reader";
 import NotFound from "@/pages/not-found";
 
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={BibleReader} />
-      <Route path="/bible/:book/:chapter" component={BibleReader} />
+      <Route path="/" component={DocumentReader} />
+      <Route path="/reader/:documentId/:chapter" component={DocumentReader} />
       <Route component={NotFound} />
     </Switch>
   );
