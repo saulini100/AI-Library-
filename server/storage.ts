@@ -88,11 +88,11 @@ export class MemStorage implements IStorage {
       .sort((a, b) => (b.createdAt?.getTime() || 0) - (a.createdAt?.getTime() || 0));
   }
 
-  async getAnnotationsByChapter(userId: number, book: string, chapter: number): Promise<Annotation[]> {
+  async getAnnotationsByChapter(userId: number, documentId: number, chapter: number): Promise<Annotation[]> {
     return Array.from(this.annotations.values())
       .filter(annotation => 
         annotation.userId === userId && 
-        annotation.book === book && 
+        annotation.documentId === documentId && 
         annotation.chapter === chapter
       );
   }
@@ -102,7 +102,8 @@ export class MemStorage implements IStorage {
     const newAnnotation: Annotation = { 
       ...annotation, 
       id, 
-      createdAt: new Date() 
+      createdAt: new Date(),
+      paragraph: annotation.paragraph ?? null
     };
     this.annotations.set(id, newAnnotation);
     return newAnnotation;
