@@ -20,12 +20,6 @@ export function log(message: string, source = "express") {
 }
 
 export async function setupVite(app: Express, server: Server) {
-  const serverOptions = {
-    middlewareMode: true,
-    hmr: { server },
-    allowedHosts: true,
-  };
-
   const vite = await createViteServer({
     ...viteConfig,
     configFile: false,
@@ -36,13 +30,74 @@ export async function setupVite(app: Express, server: Server) {
         process.exit(1);
       },
     },
-    server: serverOptions,
+    server: {
+      middlewareMode: true,
+      hmr: { server },
+      // Add performance optimizations
+      fs: {
+        strict: false, // Allow more flexibility for Vite internal files
+        allow: ['..', '../..'],
+      },
+    },
+    // Enable pre-bundling for faster startup
+    optimizeDeps: {
+      include: ['react', 'react-dom'],
+      force: false,
+    },
     appType: "custom",
+    // Performance optimizations
+    esbuild: {
+      target: 'esnext', // Use modern target for better performance
+    },
+    build: {
+      minify: false, // Faster builds in development
+      sourcemap: true, // Enable sourcemaps for debugging
+    },
   });
 
   app.use(vite.middlewares);
+  
+  // Cache the template to avoid repeated disk reads
+  let cachedTemplate: string | null = null;
+  let templateLastModified: number = 0;
+  
+  // Only serve HTML for actual page requests, not for Vite's internal requests
   app.use("*", async (req, res, next) => {
     const url = req.originalUrl;
+
+    // Skip Vite internal requests - let Vite middleware handle them
+    if (url.startsWith('/@vite/') || 
+        url.startsWith('/@fs/') || 
+        url.startsWith('/@id/') ||
+        url.startsWith('/node_modules/') ||
+        url.includes('?import') ||
+        url.includes('?direct') ||
+        url.includes('?worker') ||
+        url.includes('?inline') ||
+        url.includes('?url') ||
+        url.includes('?raw') ||
+        url.endsWith('.js') ||
+        url.endsWith('.ts') ||
+        url.endsWith('.tsx') ||
+        url.endsWith('.jsx') ||
+        url.endsWith('.css') ||
+        url.endsWith('.scss') ||
+        url.endsWith('.sass') ||
+        url.endsWith('.less') ||
+        url.endsWith('.styl') ||
+        url.endsWith('.png') ||
+        url.endsWith('.jpg') ||
+        url.endsWith('.jpeg') ||
+        url.endsWith('.gif') ||
+        url.endsWith('.svg') ||
+        url.endsWith('.ico') ||
+        url.endsWith('.woff') ||
+        url.endsWith('.woff2') ||
+        url.endsWith('.ttf') ||
+        url.endsWith('.eot') ||
+        url.endsWith('.map')) {
+      return next();
+    }
 
     try {
       const clientTemplate = path.resolve(
@@ -52,14 +107,36 @@ export async function setupVite(app: Express, server: Server) {
         "index.html",
       );
 
-      // always reload the index.html file from disk incase it changes
-      let template = await fs.promises.readFile(clientTemplate, "utf-8");
-      template = template.replace(
-        `src="/src/main.tsx"`,
-        `src="/src/main.tsx?v=${nanoid()}"`,
-      );
+      // Check if template needs to be reloaded
+      const stats = await fs.promises.stat(clientTemplate);
+      if (!cachedTemplate || stats.mtime.getTime() > templateLastModified) {
+        cachedTemplate = await fs.promises.readFile(clientTemplate, "utf-8");
+        templateLastModified = stats.mtime.getTime();
+        log("🔄 Reloaded index.html template", "vite");
+      }
+
+      // Only add cache-busting in development when HMR is actually needed
+      let template = cachedTemplate;
+      if (process.env.NODE_ENV === 'development') {
+        // Use timestamp-based cache busting instead of random nanoid for consistency
+        const timestamp = Math.floor(Date.now() / 10000); // Update every 10 seconds
+        template = template.replace(
+          `src="/src/main.tsx"`,
+          `src="/src/main.tsx?v=${timestamp}"`
+        );
+      }
+      
       const page = await vite.transformIndexHtml(url, template);
-      res.status(200).set({ "Content-Type": "text/html" }).end(page);
+      
+      // Add caching headers for better performance
+      res.set({
+        "Content-Type": "text/html",
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0"
+      });
+      
+      res.status(200).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
       next(e);

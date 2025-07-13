@@ -1,38 +1,38 @@
-// Utility functions for Bible API interactions
+// Utility functions for Document API interactions
 export interface SearchResult {
-  book: string;
+  documentId: number;
   chapter: number;
-  verse: number;
+  paragraph: number;
   text: string;
 }
 
-export interface BibleBookInfo {
-  name: string;
-  chapters: number;
+export interface DocumentInfo {
+  id: number;
+  title: string;
+  totalChapters: number;
 }
 
-export async function fetchBibleBooks(): Promise<BibleBookInfo[]> {
-  const response = await fetch("/api/bible/books");
+// Universal document API functions
+export async function getDocuments(): Promise<DocumentInfo[]> {
+  const response = await fetch("/api/documents");
   if (!response.ok) {
-    throw new Error("Failed to fetch Bible books");
+    throw new Error("Failed to fetch documents");
   }
   return response.json();
 }
 
-export async function fetchBibleChapter(book: string, chapter: number) {
-  const response = await fetch(`/api/bible/${book}/${chapter}`);
+export async function getDocumentChapter(documentId: number, chapter: number): Promise<any> {
+  const response = await fetch(`/api/documents/${documentId}/chapters/${chapter}`);
   if (!response.ok) {
-    throw new Error(`Failed to fetch ${book} ${chapter}`);
+    throw new Error("Failed to fetch chapter");
   }
   return response.json();
 }
 
-export async function searchBible(query: string): Promise<SearchResult[]> {
-  if (query.length < 3) return [];
-  
-  const response = await fetch(`/api/bible/search?q=${encodeURIComponent(query)}`);
+export async function searchDocuments(query: string): Promise<SearchResult[]> {
+  const response = await fetch(`/api/search/semantic?q=${encodeURIComponent(query)}`);
   if (!response.ok) {
-    throw new Error("Failed to search Bible");
+    throw new Error("Failed to search documents");
   }
   return response.json();
 }

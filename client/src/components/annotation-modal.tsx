@@ -9,7 +9,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
+import { StickyNote, Bookmark, Edit3, Check } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
 
 interface AnnotationModalProps {
   isOpen: boolean;
@@ -19,6 +21,7 @@ interface AnnotationModalProps {
   documentTitle: string;
   chapter: number;
   paragraph: number | null;
+  onAnnotationSaved?: (annotation: any) => void;
 }
 
 export default function AnnotationModal({
@@ -29,9 +32,13 @@ export default function AnnotationModal({
   documentTitle,
   chapter,
   paragraph,
+  onAnnotationSaved,
 }: AnnotationModalProps) {
   const [note, setNote] = useState("");
   const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+
 
   const createAnnotationMutation = useMutation({
     mutationFn: async (data: {
@@ -43,12 +50,28 @@ export default function AnnotationModal({
     }) => {
       return await apiRequest("/api/annotations", { method: "POST", body: data });
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/annotations"] });
-      queryClient.invalidateQueries({ queryKey: [`/api/annotations/${documentId}/${chapter}`] });
+    onSuccess: (data) => {
+      // queryClient.invalidateQueries({ queryKey: ["/api/annotations"] });
+      // queryClient.invalidateQueries({ queryKey: [`/api/annotations/${documentId}/${chapter}`] });
+      
+      // Call the callback with the saved annotation (this will apply highlighting)
+      onAnnotationSaved?.({ ...data, note });
+      
       setNote("");
       onClose();
+      
+      toast({
+        title: "Note saved successfully",
+        description: "Your note has been saved and the text has been highlighted.",
+      });
     },
+    onError: () => {
+      toast({
+        title: "Failed to save note",
+        description: "There was a problem saving your note. Please try again.",
+        variant: "destructive"
+      });
+    }
   });
 
   const handleSave = () => {
@@ -72,7 +95,10 @@ export default function AnnotationModal({
     <Dialog open={isOpen} onOpenChange={handleClose}>
       <DialogContent className="max-w-lg border-border">
         <DialogHeader className="space-y-3">
-          <DialogTitle className="text-xl font-semibold">Add Note</DialogTitle>
+          <DialogTitle className="text-xl font-semibold flex items-center gap-2">
+            <StickyNote className="w-5 h-5 text-amber-500" />
+            Add Study Note
+          </DialogTitle>
           <p className="text-sm text-muted-foreground">
             Add your personal notes and insights to this text
           </p>
@@ -80,14 +106,18 @@ export default function AnnotationModal({
         
         <div className="space-y-6 mt-6">
           <div>
-            <Label className="text-sm font-medium mb-3 block">Selected Text</Label>
-            <div className="p-4 bg-muted border rounded-lg text-sm leading-relaxed">
-              <span className="font-medium">"{selectedText}"</span>
+            <Label className="text-sm font-medium mb-3 flex items-center gap-2">
+              <Bookmark className="w-4 h-4 text-blue-500" />
+              Selected Text
+            </Label>
+            <div className="p-4 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/30 dark:to-orange-900/30 border border-amber-200 dark:border-amber-700 rounded-lg text-sm leading-relaxed">
+              <span className="font-bold text-black dark:text-white">"{selectedText}"</span>
             </div>
           </div>
 
           <div>
-            <Label htmlFor="note" className="text-sm font-medium mb-3 block">
+            <Label htmlFor="note" className="text-sm font-medium mb-3 flex items-center gap-2">
+              <Edit3 className="w-4 h-4 text-green-500" />
               Your Note
             </Label>
             <Textarea
@@ -98,6 +128,11 @@ export default function AnnotationModal({
               rows={5}
               className="resize-none"
             />
+            
+            {/* Character counter */}
+            <div className="mt-2 text-xs text-muted-foreground text-right">
+              {note.length} characters
+            </div>
           </div>
 
           <div className="flex space-x-3 pt-4">
@@ -114,7 +149,17 @@ export default function AnnotationModal({
               className="flex-1"
               disabled={!note.trim() || createAnnotationMutation.isPending}
             >
-              {createAnnotationMutation.isPending ? "Saving..." : "Save Note"}
+              {createAnnotationMutation.isPending ? (
+                <span className="flex items-center gap-2">
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  Saving Note...
+                </span>
+              ) : (
+                <span className="flex items-center gap-2">
+                  <Check className="w-4 h-4" />
+                  Save Note
+                </span>
+              )}
             </Button>
           </div>
         </div>
