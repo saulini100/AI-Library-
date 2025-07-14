@@ -30,6 +30,7 @@ import React from "react";
 import { saveBookmark, saveNote, saveHighlight } from "@/lib/storage";
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import AITeacherAgent from "@/components/ai-teacher-agent";
+import AINavigationAgent from "@/components/ai-navigation-agent";
 
 interface DocumentContentProps {
   document: Document;
@@ -497,6 +498,12 @@ export default function DocumentReader() {
     }
     return false;
   });
+  const [navigationAgentOpen, setNavigationAgentOpen] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('navigationAgentOpen') === 'true';
+    }
+    return false;
+  });
 
   const [activeRightPanel, setActiveRightPanel] = useState<string | null>(null);
   const highlightRemovedCallbackRef = useRef<((highlightId: string) => void) | null>(null);
@@ -942,6 +949,12 @@ export default function DocumentReader() {
     localStorage.setItem('teacherAgentOpen', newState.toString());
   };
 
+  const toggleNavigationAgent = () => {
+    const newState = !navigationAgentOpen;
+    setNavigationAgentOpen(newState);
+    localStorage.setItem('navigationAgentOpen', newState.toString());
+  };
+
   // Persist AI panel open/close state to localStorage
   useEffect(() => { localStorage.setItem('aiChatOpen', aiChatOpen ? 'true' : 'false'); }, [aiChatOpen]);
   useEffect(() => { localStorage.setItem('autoLearningOpen', autoLearningOpen ? 'true' : 'false'); }, [autoLearningOpen]);
@@ -950,6 +963,7 @@ export default function DocumentReader() {
   useEffect(() => { localStorage.setItem('powerSummariesOpen', powerSummariesOpen ? 'true' : 'false'); }, [powerSummariesOpen]);
   useEffect(() => { localStorage.setItem('quizAgentOpen', quizAgentOpen ? 'true' : 'false'); }, [quizAgentOpen]);
   useEffect(() => { localStorage.setItem('voiceReaderOpen', voiceReaderOpen ? 'true' : 'false'); }, [voiceReaderOpen]);
+  useEffect(() => { localStorage.setItem('navigationAgentOpen', navigationAgentOpen ? 'true' : 'false'); }, [navigationAgentOpen]);
 
   // Save reading position to localStorage whenever documentId or currentChapter changes
   useEffect(() => {
@@ -1023,6 +1037,7 @@ export default function DocumentReader() {
           onTogglePowerSummaries={togglePowerSummaries}
           onToggleQuizAgent={toggleQuizAgent}
           onToggleTeacherAgent={toggleTeacherAgent}
+          onToggleNavigationAgent={toggleNavigationAgent}
           aiChatOpen={aiChatOpen}
           autoLearningOpen={autoLearningOpen}
           chapterNotesOpen={chapterNotesOpen}
@@ -1030,6 +1045,7 @@ export default function DocumentReader() {
           powerSummariesOpen={powerSummariesOpen}
           quizAgentOpen={quizAgentOpen}
           teacherAgentOpen={teacherAgentOpen}
+          navigationAgentOpen={navigationAgentOpen}
         />
         
         <div className="flex relative">
@@ -1106,6 +1122,8 @@ export default function DocumentReader() {
           >
             <MessageSquare className="w-6 h-6" />
           </Button>
+
+
         </div>
 
         {/* AI Components */}
@@ -1123,7 +1141,6 @@ export default function DocumentReader() {
               chapter={currentChapter}
               isOpen={discussionAgentOpen}
               onToggle={toggleDiscussionAgent}
-              currentBook={selectedDocument.title}
             />
             
             <AutoLearningPanel
@@ -1218,6 +1235,18 @@ export default function DocumentReader() {
             chapter={currentChapter}
             isOpen={teacherAgentOpen}
             onToggle={toggleTeacherAgent}
+          />
+        )}
+
+        {/* Navigation Agent */}
+        {documentId && (
+          <AINavigationAgent
+            documentId={documentId}
+            chapter={currentChapter}
+            isOpen={navigationAgentOpen}
+            onToggle={toggleNavigationAgent}
+            currentBook={selectedDocument.title}
+            currentChapter={currentChapter}
           />
         )}
       </div>

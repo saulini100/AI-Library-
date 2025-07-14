@@ -77,7 +77,7 @@ DocumentCompanion/
 ### **Getting Started**
 ```bash
 # Clone and setup
-git clone https://github.com/your-repo/DocumentCompanion.git
+git clone https://github.com/saulini100/AI-Library-.git
 cd DocumentCompanion
 npm install
 

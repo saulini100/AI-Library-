@@ -17,6 +17,7 @@ interface TopBarProps {
   onTogglePowerSummaries?: () => void;
   onToggleQuizAgent?: () => void;
   onToggleTeacherAgent?: () => void;
+  onToggleNavigationAgent?: () => void;
   aiChatOpen?: boolean;
   autoLearningOpen?: boolean;
   chapterNotesOpen?: boolean;
@@ -24,6 +25,7 @@ interface TopBarProps {
   powerSummariesOpen?: boolean;
   quizAgentOpen?: boolean;
   teacherAgentOpen?: boolean;
+  navigationAgentOpen?: boolean;
 }
 
 export default function TopBar({
@@ -38,6 +40,7 @@ export default function TopBar({
   onTogglePowerSummaries,
   onToggleQuizAgent,
   onToggleTeacherAgent,
+  onToggleNavigationAgent,
   aiChatOpen = false,
   autoLearningOpen = false,
   chapterNotesOpen = false,
@@ -45,6 +48,7 @@ export default function TopBar({
   powerSummariesOpen = false,
   quizAgentOpen = false,
   teacherAgentOpen = false,
+  navigationAgentOpen = false,
 }: TopBarProps) {
 
 
@@ -179,6 +183,21 @@ export default function TopBar({
               >
                 <GraduationCap className="h-4 w-4 mr-1.5" />
                 <span className="text-xs font-medium">Teacher</span>
+              </Button>
+
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onToggleNavigationAgent}
+                className={`h-8 px-2.5 transition-all duration-200 ${
+                  navigationAgentOpen 
+                    ? 'bg-purple-500/10 text-purple-700 border border-purple-200/50' 
+                    : 'hover:bg-muted/60'
+                }`}
+                title="Navigation Agent"
+              >
+                <Target className="h-4 w-4 mr-1.5" />
+                <span className="text-xs font-medium">Navigate</span>
               </Button>
             </div>
 

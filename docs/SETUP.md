@@ -37,7 +37,7 @@
 ### **1. Clone & Install**
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/DocumentCompanion.git
+git clone https://github.com/saulini100/AI-Library-.git
 cd DocumentCompanion
 
 # Install dependencies

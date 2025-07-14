@@ -45,30 +45,36 @@ export class GemmaTranslationService {
   }
 
   async translateText(request: TranslationRequest): Promise<TranslationResult> {
+    console.log('🔄 Translation service called with:', request);
     const cacheKey = this.generateCacheKey(request);
     
     // Check cache first
     const cached = this.translationCache.get(cacheKey);
     if (cached) {
+      console.log('⚡ Cache hit for translation');
       return cached;
     }
 
     try {
       const prompt = this.buildTranslationPrompt(request);
+      console.log('📝 Translation prompt:', prompt.substring(0, 200) + '...');
+      
       const response = await this.ollamaService.generateText(prompt, {
         temperature: 0.3, // Lower temperature for more consistent translations
         maxTokens: Math.max(500, request.text.length * 2), // Dynamic token limit
         useCache: true
       });
 
+      console.log('🤖 Ollama response:', response.substring(0, 200) + '...');
       const result = this.parseTranslationResponse(response, request);
+      console.log('✅ Parsed translation result:', result);
       
       // Cache successful translations
       this.translationCache.set(cacheKey, result);
       
       return result;
     } catch (error) {
-      console.error('Translation failed:', error);
+      console.error('❌ Translation failed:', error);
       return {
         translatedText: request.text, // Fallback to original
         confidence: 0,

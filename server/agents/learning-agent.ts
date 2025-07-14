@@ -115,6 +115,9 @@ export class LearningAgent extends BaseAgent {
       case 'LEARN_FROM_DISCUSSION':
         await this.learnFromDiscussion(task.data);
         break;
+      case 'LEARN_FROM_NAVIGATION':
+        await this.learnFromNavigation(task.data);
+        break;
       default:
         this.warn(`Unknown task type: ${task.type}`);
     }
@@ -910,6 +913,83 @@ Extract discussion insights as JSON:
       this.log(`📚 Stored learning pattern: ${type} for Document ${documentId}, Chapter ${chapter}`);
     } catch (error) {
       this.error(`Failed to store learning pattern: ${error}`);
+    }
+  }
+
+  // Learn from navigation agent data
+  async learnFromNavigation(data: any): Promise<void> {
+    try {
+      const { documentId, chapter, term, analysis, searchResults, learningType, gemma3nAnalysis } = data;
+      
+      this.log(`🧠 Learning from navigation agent for document ${documentId}, term: ${term}`);
+      
+      // Create knowledge node from navigation agent analysis
+      const navigationNode: KnowledgeNode = {
+        id: `navigation-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        concept: term,
+        definition: analysis.definition,
+        examples: analysis.examples || [],
+        relationships: analysis.relatedTerms || [],
+        confidence: gemma3nAnalysis ? 0.95 : 0.8,
+        documentId: documentId,
+        chapter: chapter,
+        createdAt: new Date(),
+        reinforcements: 1
+      };
+      
+      this.knowledgeBase.set(navigationNode.id, navigationNode);
+      
+      // Extract additional insights from search results
+      if (searchResults && searchResults.length > 0) {
+        const searchInsights = searchResults.map((result: any) => ({
+          source: result.source,
+          title: result.title,
+          snippet: result.snippet
+        }));
+        
+        // Create enhanced learning data
+        const enhancedNode: KnowledgeNode = {
+          id: `navigation-enhanced-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          concept: `${term} (Enhanced)`,
+          definition: `Enhanced definition with ${analysis.metadata?.complexity || 'intermediate'} complexity: ${analysis.definition}`,
+          examples: [...(analysis.examples || []), ...searchInsights.map((s: any) => s.snippet).slice(0, 2)],
+          relationships: [...(analysis.relatedTerms || []), ...searchInsights.map((s: any) => s.source)],
+          confidence: 0.9,
+          documentId: documentId,
+          chapter: chapter,
+          createdAt: new Date(),
+          reinforcements: 1
+        };
+        
+        this.knowledgeBase.set(enhancedNode.id, enhancedNode);
+      }
+      
+      // Update learning context with navigation insights
+      this.updateLearningContext(documentId, {
+        domain: 'Navigation Analysis',
+        expertise_level: gemma3nAnalysis ? 9 : 7,
+        key_concepts: [term, ...(analysis.relatedTerms || [])],
+        learning_patterns: ['definition-extraction', 'context-analysis', 'source-integration'],
+        performance_metrics: {
+          accuracy: gemma3nAnalysis ? 0.95 : 0.8,
+          relevance: 0.9,
+          depth: gemma3nAnalysis ? 0.9 : 0.7
+        }
+      });
+      
+      this.log(`✅ Learned from navigation: ${term} (${gemma3nAnalysis ? 'Gemma 3N enhanced' : 'standard analysis'})`);
+      
+      // If this was a Gemma 3N analysis, trigger additional learning
+      if (gemma3nAnalysis) {
+        await this.enhanceLearningWithRAG(documentId, chapter || 1, 'navigation-gemma3n', {
+          term: term,
+          analysis: analysis,
+          complexity: analysis.metadata?.complexity || 'intermediate',
+          learningValue: analysis.metadata?.learningValue || 'medium'
+        });
+      }
+    } catch (error) {
+      this.error(`Failed to learn from navigation: ${error}`);
     }
   }
 } 

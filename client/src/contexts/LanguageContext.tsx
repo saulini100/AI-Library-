@@ -76,12 +76,15 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
   };
 
   const translate = async (request: TranslationRequest): Promise<string> => {
-    if (request.targetLanguage === currentLanguage && !request.sourceLanguage) {
-      return request.text; // No translation needed
-    }
+    console.log('🌐 Translation request:', request);
+    console.log('🌍 Current language:', currentLanguage);
+    
+    // Remove the early return to allow translation even when target language is the same
+    // This allows for better debugging and potential future features
 
     setIsTranslating(true);
     try {
+      console.log('📡 Sending translation request to API...');
       const response = await fetch('/api/translate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -93,12 +96,19 @@ export function LanguageProvider({ children }: { children: React.ReactNode }) {
         })
       });
 
-      if (!response.ok) throw new Error('Translation failed');
+      console.log('📡 API response status:', response.status);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('❌ Translation API error:', errorText);
+        throw new Error(`Translation failed: ${response.status} ${errorText}`);
+      }
       
       const data = await response.json();
+      console.log('✅ Translation API response:', data);
       return data.translatedText;
     } catch (error) {
-      console.error('Translation error:', error);
+      console.error('❌ Translation error:', error);
       return request.text; // Fallback to original text
     } finally {
       setIsTranslating(false);

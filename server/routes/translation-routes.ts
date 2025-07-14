@@ -8,6 +8,7 @@ export function createTranslationRoutes(ollamaService: OllamaService): Router {
 
   // Single text translation
   router.post('/translate', async (req, res) => {
+    console.log('🌐 Translation request received:', req.body);
     try {
       const { 
         text, 
@@ -21,7 +22,10 @@ export function createTranslationRoutes(ollamaService: OllamaService): Router {
         context?: TranslationContext;
       } = req.body;
 
+      console.log('📝 Translation details:', { text: text.substring(0, 100) + '...', targetLanguage, sourceLanguage, context });
+
       if (!text || !targetLanguage) {
+        console.error('❌ Missing required fields:', { text: !!text, targetLanguage: !!targetLanguage });
         return res.status(400).json({
           error: 'Missing required fields: text and targetLanguage'
         });

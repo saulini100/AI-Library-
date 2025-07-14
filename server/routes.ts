@@ -1095,6 +1095,38 @@ Provide a helpful, expert-level response. If you don't have specific context abo
     }
   });
 
+  // Ollama Generate endpoint for navigation agent
+  app.post("/api/ollama/generate", async (req, res) => {
+    try {
+      const { model, prompt, temperature, maxTokens } = req.body;
+      
+      if (!prompt) {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+
+      // Use Ollama service for text generation
+      const ollamaService = new OllamaService({
+        model: model || 'gemma3n:e2b',
+        temperature: temperature || 0.3,
+        maxTokens: maxTokens || 1000
+      });
+      
+      await ollamaService.initialize();
+      const response = await ollamaService.generateText(prompt, {
+        temperature: temperature || 0.3,
+        maxTokens: maxTokens || 1000
+      });
+      
+      res.json({ 
+        success: true, 
+        response: response || "I'm sorry, I couldn't generate a response."
+      });
+    } catch (error) {
+      console.error("Failed to generate text with Ollama:", error);
+      res.status(500).json({ error: "Failed to generate text" });
+    }
+  });
+
   const httpServer = createServer(app);
   
   // Initialize Socket.IO for real-time agent communication

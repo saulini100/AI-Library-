@@ -4025,14 +4025,27 @@ var init_query_result_cache_service = __esm({
         return query.toLowerCase().trim().replace(/\s+/g, " ");
       }
       /**
-       * Calculate similarity between two queries
+       * Calculate similarity between two queries with improved logic
        */
       calculateQuerySimilarity(query1, query2) {
-        const words1 = query1.split(" ");
-        const words2 = query2.split(" ");
-        const commonWords = words1.filter((word) => words2.includes(word));
-        const totalWords = (/* @__PURE__ */ new Set([...words1, ...words2])).size;
-        return commonWords.length / totalWords;
+        const words1 = query1.toLowerCase().split(" ").filter((word) => word.length > 2);
+        const words2 = query2.toLowerCase().split(" ").filter((word) => word.length > 2);
+        const stopWords = ["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by", "is", "are", "was", "were", "be", "been", "have", "has", "had", "do", "does", "did", "will", "would", "could", "should", "can", "may", "might", "what", "when", "where", "why", "how", "who", "which", "that", "this", "these", "those"];
+        const filteredWords1 = words1.filter((word) => !stopWords.includes(word));
+        const filteredWords2 = words2.filter((word) => !stopWords.includes(word));
+        if (filteredWords1.length === 0 || filteredWords2.length === 0) {
+          return 0;
+        }
+        const commonWords = filteredWords1.filter((word) => filteredWords2.includes(word));
+        const totalWords = (/* @__PURE__ */ new Set([...filteredWords1, ...filteredWords2])).size;
+        if (commonWords.length < 2) {
+          return 0;
+        }
+        const similarity = commonWords.length / totalWords;
+        const lengthDiff = Math.abs(filteredWords1.length - filteredWords2.length);
+        const maxLength = Math.max(filteredWords1.length, filteredWords2.length);
+        const lengthPenalty = lengthDiff / maxLength;
+        return Math.max(0, similarity - lengthPenalty * 0.3);
       }
       /**
        * Find fuzzy matches for similar queries
@@ -4070,7 +4083,7 @@ var init_query_result_cache_service = __esm({
           ).orderBy(desc3(queryResultCache.last_accessed_at)).limit(30);
           const matches = candidates.filter((candidate) => {
             const similarity = this.calculateQuerySimilarity(normalizedQuery, candidate.query_text);
-            return similarity >= (context?.documentId ? threshold + 0.1 : threshold);
+            return similarity >= (context?.documentId ? threshold + 0.05 : threshold + 0.1);
           });
           return matches.sort((a, b) => {
             const simA = this.calculateQuerySimilarity(normalizedQuery, a.query_text);
@@ -4110,7 +4123,7 @@ var init_query_result_cache_service = __esm({
               source: "cache"
             };
           }
-          const fuzzyMatches = await this.findFuzzyMatches(normalizedQuery, contextHash, context.userId, 0.8, context);
+          const fuzzyMatches = await this.findFuzzyMatches(normalizedQuery, contextHash, context.userId, 0.9, context);
           if (fuzzyMatches.length > 0) {
             const bestMatch = fuzzyMatches[0];
             const similarity = this.calculateQuerySimilarity(normalizedQuery, bestMatch.query_text);
@@ -4121,6 +4134,7 @@ var init_query_result_cache_service = __esm({
             this.cacheStats.fuzzyMatches++;
             const responseTime = Date.now() - startTime;
             console.log(`\u{1F3AF} Query cache FUZZY HIT for "${query}" \u2192 "${bestMatch.query_text}" (${(similarity * 100).toFixed(1)}% similar, ${responseTime}ms)`);
+            console.log(`\u26A0\uFE0F WARNING: Fuzzy cache hit may be returning stale results for different questions!`);
             return {
               results: JSON.parse(bestMatch.result),
               cacheHit: true,
@@ -4229,6 +4243,17 @@ var init_query_result_cache_service = __esm({
         } catch (error) {
           console.error("Error clearing cache:", error);
           throw error;
+        }
+      }
+      /**
+       * Clear cache for specific user to force fresh responses
+       */
+      async clearCacheForUser(userId) {
+        try {
+          const deleted = await db.delete(queryResultCache).where(eq5(queryResultCache.userId, userId));
+          console.log(`\u{1F9F9} Cleared cache for user ${userId}: ${deleted.changes} entries`);
+        } catch (error) {
+          console.error("Error clearing user cache:", error);
         }
       }
       /**
@@ -4624,6 +4649,7 @@ var init_document_rag_service = __esm({
   "server/services/document-rag-service.ts"() {
     "use strict";
     init_multi_model_service();
+    init_ollama_service();
     init_semantic_search_service();
     init_enhanced_semantic_search_service();
     init_query_result_cache_service();
@@ -4634,6 +4660,7 @@ var init_document_rag_service = __esm({
     init_schema();
     DocumentRAGService = class {
       multiModel;
+      ollamaService;
       semanticSearch;
       enhancedSemanticSearch;
       queryCache = /* @__PURE__ */ new Map();
@@ -4648,6 +4675,10 @@ var init_document_rag_service = __esm({
       }
       constructor() {
         this.multiModel = new MultiModelService();
+        this.ollamaService = new OllamaService({
+          model: "gemma3n:e2b",
+          temperature: 0.3
+        });
         this.semanticSearch = new SemanticSearchService();
         this.enhancedSemanticSearch = new EnhancedSemanticSearchService();
         this.queryResultCache = new QueryResultCacheService();
@@ -4727,21 +4758,14 @@ INSTRUCTIONS:
 - Be conversational but accurate${languageInstruction}
 
 Answer:`;
-          const response = await this.multiModel.executeTask("universal-reasoning", prompt, {
-            requirements: {
-              accuracy: 8,
-              reasoning: 7,
-              creativity: 2
-              // Very low creativity to prevent hallucination
-            },
+          const response = await this.ollamaService.generateTextWithLanguage(prompt, targetLanguage, {
             temperature: 0.2,
             // Very low temperature for consistency
             maxTokens: 200,
             // Reduced from 300 to 200 for faster responses
-            timeout: 3e4
-            // Increased to 30 seconds for better reliability
+            context: `RAG response in ${targetLanguage}`
           });
-          let answer = response.response.trim();
+          let answer = response.trim();
           answer = this.quickGroundingCheck(answer, retrievedContext);
           const confidence = this.calculateSimpleConfidence(answer, retrievedContext);
           console.log(`\u2705 Generated grounded response in ${targetLanguage} (confidence: ${confidence.toFixed(2)})`);
@@ -4768,6 +4792,7 @@ Answer:`;
       }
       async initialize() {
         await this.multiModel.initialize();
+        await this.ollamaService.initialize();
         await this.semanticSearch.initialize();
         console.log("\u{1F50D} Document RAG Service initialized with advanced caching - Ready for intelligent document retrieval!");
       }
@@ -5634,6 +5659,13 @@ Respond with just the questions, one per line:`;
       async clearCache() {
         this.queryCache.clear();
         console.log("\u{1F9F9} RAG cache cleared");
+      }
+      /**
+       * Clear cache for specific user
+       */
+      async clearCacheForUser(userId) {
+        await this.queryResultCache.clearCacheForUser(userId);
+        console.log(`\u{1F9F9} RAG cache cleared for user ${userId}`);
       }
       // 💾 SAVE RAG INSIGHTS TO DATABASE for persistent knowledge building
       async saveRAGInsightsToDB(query, response, context) {
@@ -7226,10 +7258,12 @@ var init_study_assistant_agent = __esm({
     "use strict";
     init_base_agent();
     init_multi_model_service();
+    init_ollama_service();
     init_storage();
     init_document_rag_service();
     StudyAssistantAgent = class extends BaseAgent {
       multiModelService;
+      ollamaService;
       translationService;
       // Add translation service property
       chatSessions = /* @__PURE__ */ new Map();
@@ -7248,9 +7282,14 @@ var init_study_assistant_agent = __esm({
           specialties: ["Study Assistance", "Personalized Recommendations", "Pattern Analysis", "Content Analysis", "RAG-Enhanced Responses"]
         });
         this.multiModelService = new MultiModelService();
+        this.ollamaService = new OllamaService({
+          model: "gemma3n:e2b",
+          temperature: 0.5
+        });
       }
       async initialize() {
         await this.multiModelService.initialize();
+        await this.ollamaService.initialize();
         this.log("Study Assistant Agent initialized");
       }
       async processTask(task) {
@@ -7313,7 +7352,7 @@ var init_study_assistant_agent = __esm({
           if (chatContext.recentMessages.length > 10) {
             chatContext.recentMessages = chatContext.recentMessages.slice(-10);
           }
-          return await this._translateResponse(response, chatContext.language);
+          return response;
         } catch (error) {
           this.error(`Chat message handling failed: ${error.message}`);
           return "I apologize, but I'm having trouble processing your message right now. Please try again.";
@@ -7352,13 +7391,18 @@ var init_study_assistant_agent = __esm({
             conversationHistory: context.recentMessages.map((msg) => msg.content).slice(-5),
             userStudyPatterns: this.extractUserStudyPatterns(context.userId),
             preferredTopics: await this.getUserPreferredTopics(context.userId),
-            studyLevel: await this.getUserStudyLevel(context.userId)
+            studyLevel: await this.getUserStudyLevel(context.userId),
+            targetLanguage: context.language || "en"
+            // Add language to RAG context
           };
+          console.log(`\u{1F393} Study Assistant: Using RAG with language: ${context.language || "en"}`);
           const ragResponse = await documentRAGService.processRAGQuery(message, ragContext, {
             maxSources: 5,
             includeAnnotations: true,
             includeMemories: true,
-            searchDepth: "thorough"
+            searchDepth: "thorough",
+            targetLanguage: context.language || "en"
+            // Pass language to RAG service
           });
           let enhancedResponse = ragResponse.answer;
           if (ragResponse.sources.length > 0) {
@@ -7399,22 +7443,7 @@ var init_study_assistant_agent = __esm({
 `;
             });
           }
-          this.log(`\u2705 RAG response generated with ${ragResponse.sources.length} sources (confidence: ${ragResponse.confidence})`);
-          if (context.language && context.language !== "en" && this.isResponseInEnglish(enhancedResponse)) {
-            this.warn(`RAG response was in English, translating to ${context.language}...`);
-            try {
-              if (this.translationService) {
-                const translated = await this.translationService.translateText({
-                  text: enhancedResponse,
-                  targetLanguage: context.language,
-                  context: "study_guide"
-                });
-                return translated.translatedText;
-              }
-            } catch (e) {
-              this.error(`Error translating RAG response: ${e}`);
-            }
-          }
+          this.log(`\u2705 RAG response generated with ${ragResponse.sources.length} sources (confidence: ${ragResponse.confidence}) in ${context.language || "en"}`);
           return enhancedResponse;
         } catch (error) {
           this.error(`RAG response generation failed: ${error.message}`);
@@ -7424,6 +7453,7 @@ var init_study_assistant_agent = __esm({
       // Generates a simpler, non-RAG response
       async generateChatResponse(message, context) {
         const language = context.language || "en";
+        console.log(`\u{1F393} Study Assistant: Generating chat response in language: ${language}`);
         let contentDomain = "General Studies";
         let documentTitle = "";
         if (context.documentId && context.chapter) {
@@ -7443,10 +7473,12 @@ var init_study_assistant_agent = __esm({
 ${context.recentMessages.map((m) => `${m.role}: ${m.content}`).join("\n")}
 assistant:`;
         try {
-          const { response } = await this.multiModelService.executeTask("generate-text", fullPrompt, {
+          const response = await this.ollamaService.generateTextWithLanguage(fullPrompt, language, {
             temperature: 0.6,
-            maxTokens: 400
+            maxTokens: 400,
+            context: `Study Assistant response in ${language}`
           });
+          console.log(`\u2705 Study Assistant: Generated response in ${language}`);
           return response;
         } catch (error) {
           this.error(`Chat response generation failed: ${error.message}`);
@@ -9423,3109 +9455,165 @@ Extract discussion insights as JSON:
 });
 
 // server/agents/discussion-agent.ts
-var ToolCallManager, IntentAnalyzer, ErrorRecoveryManager, ToolCallValidator, PromptManager, ContextWindowManager, UnifiedStateManager, LifecycleManager, DiscussionAgent;
+var DiscussionIntentAnalyzer, DiscussionToolCallManager, DiscussionAgent;
 var init_discussion_agent = __esm({
   "server/agents/discussion-agent.ts"() {
     "use strict";
     init_base_agent();
     init_ollama_service();
-    init_multi_model_service();
-    init_storage();
-    init_LocalMemoryService();
     init_document_rag_service();
-    init_definitions_access_service();
-    ToolCallManager = class {
-      toolRegistry = /* @__PURE__ */ new Map();
-      metrics = {
-        toolCallCount: /* @__PURE__ */ new Map(),
-        averageResponseTime: /* @__PURE__ */ new Map(),
-        successRate: /* @__PURE__ */ new Map(),
-        errorTypes: /* @__PURE__ */ new Map()
-      };
-      registerTool(name, executor) {
-        this.toolRegistry.set(name, executor);
-      }
-      async executeToolCall(toolCall) {
-        const executor = this.toolRegistry.get(toolCall.tool);
-        if (!executor) {
-          throw new Error(`Tool ${toolCall.tool} not found`);
-        }
-        const startTime = Date.now();
-        try {
-          const result = await executor.execute(toolCall.parameters);
-          const duration = Date.now() - startTime;
-          this.recordMetrics(toolCall.tool, duration, true);
-          if (!executor.validate(result)) {
-            throw new Error(`Tool ${toolCall.tool} validation failed`);
-          }
-          return result;
-        } catch (error) {
-          this.recordMetrics(toolCall.tool, Date.now() - startTime, false, error);
-          throw error;
-        }
-      }
-      recordMetrics(tool, duration, success, error) {
-        const currentCount = this.metrics.toolCallCount.get(tool) || 0;
-        this.metrics.toolCallCount.set(tool, currentCount + 1);
-        if (success) {
-          const currentSuccess = this.metrics.successRate.get(tool) || 0;
-          this.metrics.successRate.set(tool, currentSuccess + 1);
-        }
-        if (error) {
-          const errorType = error?.constructor?.name || "UnknownError";
-          const currentErrors = this.metrics.errorTypes.get(errorType) || 0;
-          this.metrics.errorTypes.set(errorType, currentErrors + 1);
-        }
-      }
-      getMetrics() {
-        return {
-          toolCallCount: Object.fromEntries(this.metrics.toolCallCount),
-          successRate: Object.fromEntries(this.metrics.successRate),
-          errorTypes: Object.fromEntries(this.metrics.errorTypes)
-        };
-      }
-    };
-    IntentAnalyzer = class {
-      intentPatterns = {
-        "note_request": /(take a note|remember that|note down|save this|remember this|apunta|recuerda|guarda esto|prenez note|notez|speichern|merken|覚えて|기억해|记住|تذكر|запомни)/i,
-        "group_discussion": /(group discussion|panel discussion|multiple perspectives|ai panel|expert panel|discusión grupal|panel de expertos|discussion de groupe|gruppendiskussion|グループ討論|그룹 토론|小组讨论|نقاش جماعي|групповое обсуждение)/i,
-        "translation_request": /(translate|in spanish|en français|auf deutsch|in italiano|em português|traduce|traduire|übersetzen|翻訳|번역|翻译|ترجم|переведи)/i,
-        "question": /(what|who|where|when|why|how|which|can|is|do|are|does|tell me about|qué|quién|dónde|cuándo|por qué|cómo|cuál|puede|es|hacer|son|hace|¿|que|où|quand|pourquoi|comment|qui|was|wer|wo|wann|warum|wie|welche|kann|ist|何|誰|どこ|いつ|なぜ|どう|무엇|누구|어디|언제|왜|어떻게|什么|谁|哪里|什么时候|为什么|怎么|ماذا|من|أين|متى|لماذا|كيف|что|кто|где|когда|почему|как)/i,
-        "context_request": /(context|background|information about|details about|contexto|información sobre|contexte|informations sur|kontext|informationen über|背景|文脈|맥락|정보|上下文|信息|سياق|معلومات|контекст|информация)/i,
-        "clarification": /(what do you mean|can you explain|I don't understand|clarify|qué quieres decir|puedes explicar|no entiendo|aclarar|que veux-tu dire|peux-tu expliquer|je ne comprends pas|clarifier|was meinst du|kannst du erklären|ich verstehe nicht|klären|どういう意味|説明して|わからない|무슨 뜻|설명해|이해 안 돼|什么意思|解释|不明白|ماذا تقصد|اشرح|لا أفهم|что ты имеешь в виду|объясни|не понимаю)/i
-      };
+    DiscussionIntentAnalyzer = class {
       analyzeIntent(message) {
         const lowerMessage = message.toLowerCase();
-        let bestIntent = "general_discussion";
-        let highestConfidence = 0;
-        for (const [intent, pattern] of Object.entries(this.intentPatterns)) {
-          if (pattern.test(lowerMessage)) {
-            const confidence = this.calculateConfidence(lowerMessage, pattern);
-            if (confidence > highestConfidence) {
-              highestConfidence = confidence;
-              bestIntent = intent;
-            }
-          }
+        if (lowerMessage.includes("note") || lowerMessage.includes("remember") || lowerMessage.includes("save")) {
+          return { type: "note_request" };
         }
-        return {
-          type: bestIntent,
-          confidence: highestConfidence,
-          entities: this.extractEntities(lowerMessage),
-          requiresContext: this.needsContext(lowerMessage),
-          suggestedTools: this.mapIntentToTools(bestIntent)
-        };
-      }
-      calculateConfidence(message, pattern) {
-        const matches = message.match(pattern);
-        if (!matches) return 0;
-        const specificity = pattern.source.length / 20;
-        const frequency = matches.length;
-        return Math.min(1, (specificity + frequency) / 2);
-      }
-      extractEntities(message) {
-        const entities = [];
-        const words = message.split(/\s+/).filter((word) => word.length > 2);
-        const significantWords = words.filter(
-          (word) => /^[A-Z][a-z]+/.test(word) || // Proper nouns
-          /^[a-z]{3,}$/.test(word) || // Longer common words (reduced from 4 to 3)
-          /^[A-Z]{2,}$/.test(word)
-          // Acronyms like XRP, USD, etc.
-        );
-        if (significantWords.length === 0) {
-          const stopWords = ["que", "es", "el", "la", "de", "en", "y", "a", "un", "ser", "se", "no", "te", "lo", "le", "da", "su", "por", "son", "con", "para", "las", "del", "los", "una", "hay", "era", "han", "sin", "m\xE1s", "qu\xE9", "mi", "we", "are", "is", "the", "and", "or", "but", "what", "how", "why", "when", "where", "who"];
-          return words.filter((word) => !stopWords.includes(word.toLowerCase()) && word.length > 1);
+        if (lowerMessage.includes("translate") || lowerMessage.includes("traduce") || lowerMessage.includes("traduire")) {
+          return { type: "translation_request" };
         }
-        return significantWords.slice(0, 5);
-      }
-      needsContext(message) {
-        const contextKeywords = ["this", "that", "it", "here", "there", "chapter", "document", "reading"];
-        return contextKeywords.some((keyword) => message.includes(keyword));
-      }
-      mapIntentToTools(intent) {
-        const intentToTools = {
-          "note_request": ["extract_content", "save_note", "generate_confirmation"],
-          "group_discussion": ["generate_panel_responses", "stream_responses"],
-          "translation_request": ["detect_language", "translate_response"],
-          "question": ["search_context", "generate_response"],
-          "context_request": ["search_context", "build_context"],
-          "clarification": ["analyze_question", "generate_clarification"],
-          "general_discussion": ["search_context", "generate_response"]
-        };
-        return intentToTools[intent] || ["generate_response"];
+        if (lowerMessage.includes("what") || lowerMessage.includes("how") || lowerMessage.includes("why") || lowerMessage.includes("qui\xE9n") || lowerMessage.includes("c\xF3mo") || lowerMessage.includes("por qu\xE9")) {
+          return { type: "question" };
+        }
+        return { type: "discussion" };
       }
     };
-    ErrorRecoveryManager = class {
-      errorStrategies = {
-        "tool_timeout": async (error, context, agent) => {
-          return await agent.generateSimplifiedResponse(context);
-        },
-        "tool_not_found": async (error, context, agent) => {
-          return await agent.useDefaultTool(context);
-        },
-        "validation_failed": async (error, context, agent) => {
-          return await agent.retryWithAdjustedParams(context);
-        }
-      };
-      async handleError(error, context, agent) {
-        const errorType = this.classifyError(error);
-        const strategy = this.errorStrategies[errorType];
-        if (strategy) {
-          try {
-            return await strategy(error, context, agent);
-          } catch (fallbackError) {
-            return this.getGenericFallback(context);
-          }
-        }
-        return this.getGenericFallback(context);
+    DiscussionToolCallManager = class {
+      ollamaService;
+      constructor(ollamaService) {
+        this.ollamaService = ollamaService;
       }
-      classifyError(error) {
-        if (error.message.includes("timeout")) return "tool_timeout";
-        if (error.message.includes("not found")) return "tool_not_found";
-        if (error.message.includes("validation")) return "validation_failed";
-        return "unknown_error";
+      async generateDiscussionResponse(message, context) {
+        const targetLanguage = context?.language || "en";
+        console.log(`\u{1F4AC} Discussion Tool Manager: Generating response in ${targetLanguage}`);
+        const prompt = `You are a helpful discussion partner. Engage in a natural conversation about the following topic. Be friendly, informative, and conversational.
+
+Topic: ${message}`;
+        console.log(`\u{1F4DD} Discussion Tool Manager: Sending prompt to Ollama in ${targetLanguage}`);
+        const response = await this.ollamaService.generateTextWithLanguage(prompt, targetLanguage, {
+          temperature: 0.7,
+          // Higher temperature for more conversational responses
+          maxTokens: 2048,
+          context: `Discussion response in ${targetLanguage}`
+        });
+        console.log(`\u2705 Discussion Tool Manager: Received response in ${targetLanguage}`);
+        return response;
       }
-      getGenericFallback(context) {
-        return "I'm having trouble processing that right now. Could you try rephrasing your question or ask me something else?";
-      }
-    };
-    ToolCallValidator = class {
-      validateResponse(response, expectedType) {
-        const validators = {
-          "text_response": (r) => typeof r === "string" && r.length > 0,
-          "translation": (r) => r.translatedText && r.sourceLanguage,
-          "rag_result": (r) => r.sources && Array.isArray(r.sources),
-          "note": (r) => r.id && r.content && r.timestamp,
-          "panel_response": (r) => Array.isArray(r) && r.length > 0
+      async searchDiscussionContext(query, context) {
+        const ragContext = {
+          userId: context?.userId || 1,
+          currentDocument: context?.documentId,
+          currentChapter: context?.chapter,
+          conversationHistory: context?.conversationHistory?.slice(-3) || [],
+          userStudyPatterns: [],
+          preferredTopics: [],
+          studyLevel: "intermediate",
+          targetLanguage: context?.language || "en"
         };
-        const validator = validators[expectedType];
-        const isValid = validator ? validator(response) : true;
-        return {
-          isValid,
-          issues: this.detectIssues(response, expectedType),
-          confidence: this.calculateConfidence(response, expectedType),
-          suggestions: isValid ? void 0 : this.generateSuggestions(expectedType)
-        };
-      }
-      detectIssues(response, expectedType) {
-        const issues = [];
-        if (!response) {
-          issues.push("Empty response");
-          return issues;
-        }
-        switch (expectedType) {
-          case "text_response":
-            if (typeof response !== "string") issues.push("Response is not a string");
-            if (response.length < 10) issues.push("Response too short");
-            if (response.includes("I apologize")) issues.push("Contains apology - likely error");
-            break;
-          case "rag_result":
-            if (!response.sources) issues.push("Missing sources");
-            if (!Array.isArray(response.sources)) issues.push("Sources not an array");
-            break;
-          case "translation":
-            if (!response.translatedText) issues.push("Missing translated text");
-            if (!response.sourceLanguage) issues.push("Missing source language");
-            break;
-        }
-        return issues;
-      }
-      calculateConfidence(response, expectedType) {
-        if (!response) return 0;
-        const issues = this.detectIssues(response, expectedType);
-        const baseConfidence = 1 - issues.length * 0.2;
-        return Math.max(0, baseConfidence);
-      }
-      generateSuggestions(expectedType) {
-        const suggestions = {
-          "text_response": ["Try regenerating the response", "Check input parameters"],
-          "rag_result": ["Verify search query", "Check document availability"],
-          "translation": ["Verify source language", "Check translation service"],
-          "note": ["Verify note content", "Check storage permissions"]
-        };
-        return suggestions[expectedType] || ["Review input and try again"];
-      }
-    };
-    PromptManager = class {
-      promptTemplates = /* @__PURE__ */ new Map();
-      promptVersions = /* @__PURE__ */ new Map();
-      promptMetrics = /* @__PURE__ */ new Map();
-      constructor() {
-        this.initializePrompts();
-      }
-      initializePrompts() {
-        this.promptTemplates.set("discussion_system", `You are a helpful AI discussion partner focused on accurate, grounded responses. 
-
-CRITICAL INSTRUCTIONS FOR RELIABILITY:
-1. ONLY use information from the provided context and conversation history
-2. If you don't have specific information, clearly state "I don't have enough information about that"
-3. Do NOT make up facts, names, dates, or details not in the context
-4. Stay focused on the current document and conversation topic
-5. Be conversational but accurate - admit uncertainty when appropriate
-
-You engage in meaningful conversations about the user's documents and topics. You ask thoughtful questions and provide insights based ONLY on what you know from the provided context.
-
-CONVERSATION GUIDELINES:
-- Reference specific parts of the context when making points
-- Build naturally on previous conversation points
-- If asked about something not in your context, offer to help find information rather than guessing
-- Keep responses focused and relevant to the current document/topic`);
-        this.promptTemplates.set("group_discussion_intro", `\u{1F4DA} **Welcome to the Universal Knowledge Panel!** \u{1F4DA}
-
-Our distinguished AI experts are ready to discuss any topic from multiple perspectives:
-
-\u{1F52C} **The Analytical Expert** - *Methodical and evidence-based analysis*
-\u{1F4A1} **The Creative Thinker** - *Innovative and imaginative perspectives*
-\u2699\uFE0F **The Practical Advisor** - *Real-world applications and solutions*
-\u2753 **The Curious Challenger** - *Thought-provoking questions and alternative viewpoints*
-
-Ask any question about literature, science, philosophy, history, technology, or any subject you'd like to explore!`);
-        this.promptTemplates.set("personality_analytical", `You are The Analytical Expert - a precise, methodical thinker who loves deep analysis. You examine evidence carefully, consider multiple perspectives, and build logical arguments step by step. You often say "Let me analyze this carefully..." or "The data suggests..." or "From a logical standpoint..."`);
-        this.promptTemplates.set("personality_creative", `You are The Creative Thinker - an innovative mind who sees connections others miss. You approach problems with creativity, explore possibilities, and think outside the box. You often say "What if we considered..." or "I see an interesting pattern..." or "From a creative angle..."`);
-        this.promptTemplates.set("personality_practical", `You are The Practical Advisor - someone who focuses on real-world applications and actionable solutions. You bridge theory and practice, offering concrete steps and practical wisdom. You often say "In practical terms..." or "Here's how we can apply this..." or "A useful approach would be..."`);
-        this.promptTemplates.set("personality_challenger", `You are The Curious Challenger - someone who asks thought-provoking questions and respectfully challenges assumptions. You help others think deeper by exploring alternative viewpoints. You often say "But what if..." or "Have we considered..." or "Let me challenge that assumption..."`);
-        this.promptTemplates.set("fact_check", `Analyze this response for factual accuracy and potential hallucinations. Look for:
-1. Specific claims not supported by context
-2. Made-up dates, names, or details
-3. Overly confident statements without evidence
-4. Contradictions with provided information
-
-Response to check: {response}
-Available context: {context}
-
-Provide a confidence score (0-1) and list any issues found.`);
-        this.promptTemplates.set("language_detection", `Detect the primary language of this text and return only the ISO language code (e.g., 'en', 'es', 'fr', 'de', 'ja', 'ko', 'zh').
-
-Text: {text}
-
-Language code:`);
-      }
-      getPrompt(templateName, variables) {
-        const template = this.promptTemplates.get(templateName);
-        if (!template) {
-          throw new Error(`Prompt template '${templateName}' not found`);
-        }
-        if (!variables) {
-          return template;
-        }
-        let prompt = template;
-        for (const [key, value] of Object.entries(variables)) {
-          prompt = prompt.replace(new RegExp(`{${key}}`, "g"), value);
-        }
-        return prompt;
-      }
-      recordPromptUsage(templateName, success, responseTime) {
-        const current = this.promptMetrics.get(templateName) || { usage: 0, success: 0, avgResponseTime: 0 };
-        current.usage++;
-        if (success) current.success++;
-        current.avgResponseTime = (current.avgResponseTime * (current.usage - 1) + responseTime) / current.usage;
-        this.promptMetrics.set(templateName, current);
-      }
-      getPromptMetrics() {
-        const metrics = {};
-        this.promptMetrics.forEach((data, template) => {
-          metrics[template] = {
-            ...data,
-            successRate: data.usage > 0 ? data.success / data.usage : 0
-          };
-        });
-        return metrics;
-      }
-      updatePrompt(templateName, newPrompt, version) {
-        this.promptTemplates.set(templateName, newPrompt);
-        if (version) {
-          this.promptVersions.set(templateName, version);
-        }
-      }
-    };
-    ContextWindowManager = class {
-      maxTokens = 8e3;
-      // Conservative token limit
-      currentTokens = 0;
-      contextHistory = [];
-      tokenEstimator;
-      constructor(tokenEstimator) {
-        this.tokenEstimator = tokenEstimator || ((text2) => Math.ceil(text2.length / 4));
-      }
-      addContext(content, priority = 1) {
-        const tokens = this.tokenEstimator(content);
-        if (this.currentTokens + tokens > this.maxTokens) {
-          this.compressContext(priority);
-          if (this.currentTokens + tokens > this.maxTokens) {
-            return false;
-          }
-        }
-        this.contextHistory.push({
-          content,
-          tokens,
-          timestamp: /* @__PURE__ */ new Date(),
-          priority
-        });
-        this.currentTokens += tokens;
-        return true;
-      }
-      compressContext(newPriority) {
-        this.contextHistory.sort((a, b) => {
-          if (a.priority !== b.priority) {
-            return a.priority - b.priority;
-          }
-          return a.timestamp.getTime() - b.timestamp.getTime();
-        });
-        while (this.contextHistory.length > 0 && this.currentTokens > this.maxTokens * 0.8) {
-          const removed = this.contextHistory.shift();
-          this.currentTokens -= removed.tokens;
-        }
-      }
-      getContext() {
-        const sortedContext = [...this.contextHistory].sort((a, b) => {
-          if (a.priority !== b.priority) {
-            return b.priority - a.priority;
-          }
-          return b.timestamp.getTime() - a.timestamp.getTime();
-        });
-        return sortedContext.map((item) => item.content).join("\n\n");
-      }
-      getContextStats() {
-        if (this.contextHistory.length === 0) {
-          return { totalTokens: 0, itemCount: 0, oldestItem: null, newestItem: null };
-        }
-        const timestamps = this.contextHistory.map((item) => item.timestamp);
-        return {
-          totalTokens: this.currentTokens,
-          itemCount: this.contextHistory.length,
-          oldestItem: new Date(Math.min(...timestamps.map((t) => t.getTime()))),
-          newestItem: new Date(Math.max(...timestamps.map((t) => t.getTime())))
-        };
-      }
-      clearContext() {
-        this.contextHistory = [];
-        this.currentTokens = 0;
-      }
-      setMaxTokens(maxTokens) {
-        this.maxTokens = maxTokens;
-        this.compressContext(0);
-      }
-    };
-    UnifiedStateManager = class _UnifiedStateManager {
-      state = /* @__PURE__ */ new Map();
-      stateHistory = [];
-      maxHistorySize = 50;
-      // Business state keys
-      static BUSINESS_KEYS = {
-        USER_SESSIONS: "user_sessions",
-        CONVERSATION_HISTORY: "conversation_history",
-        LEARNING_PATTERNS: "learning_patterns",
-        ACTIVE_DISCUSSIONS: "active_discussions",
-        USER_NOTES: "user_notes"
-      };
-      // Execution state keys
-      static EXECUTION_KEYS = {
-        CURRENT_TASK: "current_task",
-        TOOL_CALLS: "tool_calls",
-        ERROR_STATE: "error_state",
-        PERFORMANCE_METRICS: "performance_metrics",
-        CONTEXT_WINDOW: "context_window"
-      };
-      setBusinessState(key, value) {
-        this.state.set(key, value);
-        this.recordStateChange("business", key);
-      }
-      setExecutionState(key, value) {
-        this.state.set(key, value);
-        this.recordStateChange("execution", key);
-      }
-      getBusinessState(key) {
-        return this.state.get(key);
-      }
-      getExecutionState(key) {
-        return this.state.get(key);
-      }
-      recordStateChange(type, key) {
-        const stateSnapshot = new Map(this.state);
-        this.stateHistory.push({
-          timestamp: /* @__PURE__ */ new Date(),
-          state: stateSnapshot,
-          event: `${type}_state_change:${key}`
-        });
-        if (this.stateHistory.length > this.maxHistorySize) {
-          this.stateHistory = this.stateHistory.slice(-this.maxHistorySize);
-        }
-      }
-      getStateSnapshot() {
-        const snapshot = {};
-        this.state.forEach((value, key) => {
-          snapshot[key] = value;
-        });
-        return snapshot;
-      }
-      getStateHistory() {
-        return this.stateHistory.map((entry) => ({
-          timestamp: entry.timestamp,
-          event: entry.event
-        }));
-      }
-      // Convenience methods for common state operations
-      updateUserSession(sessionId, sessionData) {
-        const sessions = this.getBusinessState(_UnifiedStateManager.BUSINESS_KEYS.USER_SESSIONS) || /* @__PURE__ */ new Map();
-        sessions.set(sessionId, sessionData);
-        this.setBusinessState(_UnifiedStateManager.BUSINESS_KEYS.USER_SESSIONS, sessions);
-      }
-      getUserSession(sessionId) {
-        const sessions = this.getBusinessState(_UnifiedStateManager.BUSINESS_KEYS.USER_SESSIONS) || /* @__PURE__ */ new Map();
-        return sessions.get(sessionId);
-      }
-      updateToolCall(toolCallId, status, result) {
-        const toolCalls = this.getExecutionState(_UnifiedStateManager.EXECUTION_KEYS.TOOL_CALLS) || /* @__PURE__ */ new Map();
-        toolCalls.set(toolCallId, { status, result, timestamp: /* @__PURE__ */ new Date() });
-        this.setExecutionState(_UnifiedStateManager.EXECUTION_KEYS.TOOL_CALLS, toolCalls);
-      }
-      getToolCall(toolCallId) {
-        const toolCalls = this.getExecutionState(_UnifiedStateManager.EXECUTION_KEYS.TOOL_CALLS) || /* @__PURE__ */ new Map();
-        return toolCalls.get(toolCallId);
-      }
-      setErrorState(error, context) {
-        this.setExecutionState(_UnifiedStateManager.EXECUTION_KEYS.ERROR_STATE, {
-          error: error.message,
-          stack: error.stack,
-          context,
-          timestamp: /* @__PURE__ */ new Date()
+        return await documentRAGService.processRAGQuery(query, ragContext, {
+          maxSources: 2,
+          includeAnnotations: true,
+          includeMemories: true,
+          searchDepth: "quick",
+          useEmbeddings: true,
+          singleDocumentOnly: false,
+          targetLanguage: context?.language || "en"
         });
       }
-      clearErrorState() {
-        this.state.delete(_UnifiedStateManager.EXECUTION_KEYS.ERROR_STATE);
-      }
-      updatePerformanceMetrics(metric, value) {
-        const metrics = this.getExecutionState(_UnifiedStateManager.EXECUTION_KEYS.PERFORMANCE_METRICS) || {};
-        metrics[metric] = value;
-        this.setExecutionState(_UnifiedStateManager.EXECUTION_KEYS.PERFORMANCE_METRICS, metrics);
-      }
-    };
-    LifecycleManager = class {
-      agent;
-      state = "stopped";
-      pauseReason;
-      resumeConditions = [];
-      lifecycleCallbacks = /* @__PURE__ */ new Map();
-      constructor(agent) {
-        this.agent = agent;
-      }
-      log(message) {
-        console.log(`[LifecycleManager] ${message}`);
-      }
-      error(message) {
-        console.error(`[LifecycleManager] ${message}`);
-      }
-      async launch() {
-        if (this.state === "running") {
-          this.log("Agent is already running");
-          return;
-        }
-        try {
-          this.log("\u{1F680} Launching Discussion Agent...");
-          await this.agent.initialize();
-          this.state = "running";
-          this.triggerCallbacks("launched");
-          this.log("\u2705 Discussion Agent launched successfully");
-        } catch (error) {
-          this.error(`\u274C Failed to launch agent: ${error}`);
-          throw error;
-        }
-      }
-      async pause(reason) {
-        if (this.state !== "running") {
-          this.log("Agent is not running, cannot pause");
-          return;
-        }
-        this.state = "paused";
-        this.pauseReason = reason;
-        this.triggerCallbacks("paused");
-        this.log(`\u23F8\uFE0F Agent paused${reason ? `: ${reason}` : ""}`);
-      }
-      async resume() {
-        if (this.state !== "paused") {
-          this.log("Agent is not paused, cannot resume");
-          return;
-        }
-        const blockedConditions = this.resumeConditions.filter((condition) => !condition.condition());
-        if (blockedConditions.length > 0) {
-          this.log(`Cannot resume: ${blockedConditions.map((c) => c.description).join(", ")}`);
-          return;
-        }
-        this.state = "running";
-        this.pauseReason = void 0;
-        this.triggerCallbacks("resumed");
-        this.log("\u25B6\uFE0F Agent resumed successfully");
-      }
-      async stop() {
-        if (this.state === "stopped") {
-          this.log("Agent is already stopped");
-          return;
-        }
-        try {
-          this.state = "stopped";
-          this.pauseReason = void 0;
-          this.resumeConditions = [];
-          await this.agent.cleanup();
-          this.triggerCallbacks("stopped");
-          this.log("\u{1F6D1} Agent stopped successfully");
-        } catch (error) {
-          this.error(`Failed to stop agent: ${error}`);
-          throw error;
-        }
-      }
-      getStatus() {
-        const canResume = this.state === "paused" && this.resumeConditions.every((condition) => condition.condition());
-        return {
-          state: this.state,
-          pauseReason: this.pauseReason,
-          canResume
-        };
-      }
-      addResumeCondition(condition, description) {
-        this.resumeConditions.push({ condition, description });
-      }
-      onLifecycleEvent(event, callback) {
-        if (!this.lifecycleCallbacks.has(event)) {
-          this.lifecycleCallbacks.set(event, []);
-        }
-        this.lifecycleCallbacks.get(event).push(callback);
-      }
-      triggerCallbacks(event) {
-        const callbacks = this.lifecycleCallbacks.get(event) || [];
-        callbacks.forEach((callback) => {
-          try {
-            callback();
-          } catch (error) {
-            this.error(`Lifecycle callback error: ${error}`);
-          }
+      async generateNoteResponse(message, context) {
+        const targetLanguage = context?.language || "en";
+        console.log(`\u{1F4DD} Note Tool Manager: Generating note in ${targetLanguage}`);
+        const prompt = `Create a helpful note about the following topic. Make it clear, organized, and easy to reference later.
+
+Topic: ${message}`;
+        const response = await this.ollamaService.generateTextWithLanguage(prompt, targetLanguage, {
+          temperature: 0.3,
+          // Lower temperature for more structured notes
+          maxTokens: 1024,
+          context: `Note creation in ${targetLanguage}`
         });
-      }
-      // Convenience methods for common pause scenarios
-      async pauseForMaintenance() {
-        await this.pause("Maintenance in progress");
-      }
-      async pauseForResourceLimit() {
-        await this.pause("Resource limit reached");
-      }
-      async pauseForError() {
-        await this.pause("Error condition detected");
+        console.log(`\u2705 Note Tool Manager: Created note in ${targetLanguage}`);
+        return response;
       }
     };
     DiscussionAgent = class extends BaseAgent {
       ollamaService;
-      multiModelService;
-      memoryService;
-      definitionsService;
-      translationService;
-      // Add translation service property
-      discussionSessions = /* @__PURE__ */ new Map();
-      userNotes = /* @__PURE__ */ new Map();
-      topicRegistry = /* @__PURE__ */ new Map();
-      // topic -> sessionIds
-      learningPatterns = /* @__PURE__ */ new Map();
-      // 🚀 NEW: Enhanced Architecture Components
       toolCallManager;
       intentAnalyzer;
-      errorRecoveryManager;
-      toolCallValidator;
-      promptManager;
-      contextWindowManager;
-      unifiedStateManager;
-      lifecycleManager;
-      // AI Model Personalities for group discussions (Ollama Local Models Only)
-      aiPersonalities = {
-        "analytical-expert": {
-          model: "qwen2.5:7b-instruct",
-          // 🏠 Local Ollama model for analytical reasoning
-          name: "The Analytical Expert",
-          style: "methodical, evidence-based, scholarly",
-          prompt: 'You are The Analytical Expert - a precise, methodical thinker who loves deep analysis. You examine evidence carefully, consider multiple perspectives, and build logical arguments step by step. You often say "Let me analyze this carefully..." or "The data suggests..." or "From a logical standpoint..."'
-        },
-        "creative-thinker": {
-          model: "mistral:7b",
-          // 🏠 Local Ollama model for creative thinking
-          name: "The Creative Thinker",
-          style: "innovative, imaginative, big-picture focused",
-          prompt: 'You are The Creative Thinker - an innovative mind who sees connections others miss. You approach problems with creativity, explore possibilities, and think outside the box. You often say "What if we considered..." or "I see an interesting pattern..." or "From a creative angle..."'
-        },
-        "practical-advisor": {
-          model: "llama3.2:3b",
-          // 🏠 Local Ollama model for practical advice
-          name: "The Practical Advisor",
-          style: "pragmatic, solution-focused, real-world oriented",
-          prompt: `You are The Practical Advisor - someone who focuses on real-world applications and actionable solutions. You bridge theory and practice, offering concrete steps and practical wisdom. You often say "In practical terms..." or "Here's how we can apply this..." or "A useful approach would be..."`
-        },
-        "curious-challenger": {
-          model: "phi3.5:3.8b-mini-instruct-q8_0",
-          // 🏠 Local Ollama model for challenging questions
-          name: "The Curious Challenger",
-          style: "questioning, thought-provoking, devil's advocate",
-          prompt: 'You are The Curious Challenger - someone who asks thought-provoking questions and respectfully challenges assumptions. You help others think deeper by exploring alternative viewpoints. You often say "But what if..." or "Have we considered..." or "Let me challenge that assumption..."'
-        }
-      };
       constructor() {
         super({
           name: "DiscussionAgent",
-          description: "Facilitates meaningful discussions about any topic, manages notes, and learns from conversations",
+          description: "Engages in natural discussions and helps with note-taking. Provides conversational responses and context-aware insights.",
           interval: 9e5,
-          // 15 minutes (less aggressive)
-          maxRetries: 3,
-          timeout: 12e4,
-          // 120 seconds for deeper discussions
-          specialties: ["Discussion Facilitation", "Note Taking", "Conversation Learning", "Group Discussions", "Multi-language Support"]
+          maxRetries: 2,
+          timeout: 6e4,
+          specialties: ["Discussion", "Note-taking", "Conversation", "Context-aware Responses"]
         });
         this.ollamaService = new OllamaService({
           model: "gemma3n:e2b",
-          // Fast and reliable model for discussions
           temperature: 0.7
-          // Higher temperature for more creative discussions
         });
-        this.multiModelService = new MultiModelService();
-        this.memoryService = LocalMemoryService.getInstance();
-        this.definitionsService = new DefinitionsAccessService();
-        this.toolCallManager = new ToolCallManager();
-        this.intentAnalyzer = new IntentAnalyzer();
-        this.errorRecoveryManager = new ErrorRecoveryManager();
-        this.toolCallValidator = new ToolCallValidator();
-        this.promptManager = new PromptManager();
-        this.contextWindowManager = new ContextWindowManager();
-        this.unifiedStateManager = new UnifiedStateManager();
-        this.lifecycleManager = new LifecycleManager(this);
-        this.registerTools();
-      }
-      // 🚀 NEW: Register all available tools
-      registerTools() {
-        this.toolCallManager.registerTool("generate_response", {
-          description: "Generate AI response to user message",
-          parameters: { message: "string", context: "object" },
-          execute: async (params) => {
-            const response = await this.ollamaService.generateText(params.message);
-            return response;
-          },
-          validate: (result) => typeof result === "string" && result.length > 0
-        });
-        this.toolCallManager.registerTool("search_context", {
-          description: "Search for relevant context using RAG",
-          parameters: { query: "string", documentId: "number", chapter: "number", context: "object" },
-          execute: async (params) => {
-            const ragContext = {
-              userId: params.context?.userId || 2,
-              currentDocument: params.documentId,
-              currentChapter: params.chapter,
-              conversationHistory: params.context?.conversationHistory?.slice(-3) || [],
-              userStudyPatterns: params.context?.discussionTopics?.slice(-5) || [],
-              preferredTopics: params.context?.discussionTopics?.slice(-3) || [],
-              studyLevel: "intermediate",
-              targetLanguage: params.context?.language || "en"
-              // Pass the target language from session
-            };
-            return await documentRAGService.processRAGQuery(params.query, ragContext, {
-              maxSources: 2,
-              includeAnnotations: false,
-              includeMemories: false,
-              searchDepth: "quick",
-              useEmbeddings: true,
-              singleDocumentOnly: true,
-              targetLanguage: params.context?.language || "en"
-              // Pass language to options too
-            });
-          },
-          validate: (result) => result.sources && Array.isArray(result.sources)
-        });
-        this.toolCallManager.registerTool("save_note", {
-          description: "Save a note to persistent storage",
-          parameters: { content: "string", userId: "number", documentId: "number", chapter: "number" },
-          execute: async (params) => {
-            const note = {
-              id: `note-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              content: params.content,
-              timestamp: /* @__PURE__ */ new Date(),
-              userId: params.userId,
-              documentId: params.documentId,
-              chapter: params.chapter,
-              tags: [],
-              type: "ai"
-            };
-            if (!this.userNotes.has(params.userId)) {
-              this.userNotes.set(params.userId, []);
-            }
-            this.userNotes.get(params.userId).push(note);
-            return note;
-          },
-          validate: (result) => result.id && result.content && result.timestamp
-        });
-        this.toolCallManager.registerTool("translate_response", {
-          description: "Translate response to target language",
-          parameters: { text: "string", targetLanguage: "string" },
-          execute: async (params) => {
-            if (!this.translationService) {
-              return { translatedText: params.text, sourceLanguage: "en" };
-            }
-            const translated = await this.translationService.translateText({
-              text: params.text,
-              targetLanguage: params.targetLanguage,
-              context: "general"
-            });
-            return translated;
-          },
-          validate: (result) => result.translatedText && result.sourceLanguage
-        });
-        this.toolCallManager.registerTool("generate_panel_responses", {
-          description: "Generate responses from multiple AI personalities",
-          parameters: { message: "string", context: "object" },
-          execute: async (params) => {
-            return await this.generatePanelResponses(params.message, params.context);
-          },
-          validate: (result) => Array.isArray(result) && result.length > 0
-        });
-      }
-      // 🚀 NEW: Error Recovery Methods
-      async generateSimplifiedResponse(context) {
-        try {
-          const simplePrompt = "Provide a brief, helpful response to the user's question.";
-          const response = await this.ollamaService.generateText(simplePrompt);
-          return response || "I'm here to help. Could you please rephrase your question?";
-        } catch (error) {
-          return "I'm having trouble right now. Please try again in a moment.";
-        }
-      }
-      async useDefaultTool(context) {
-        try {
-          const toolCall = {
-            id: `fallback-${Date.now()}`,
-            tool: "generate_response",
-            parameters: {
-              message: "Provide a helpful response to the user's question.",
-              context
-            },
-            expectedResponse: "text_response"
-          };
-          const result = await this.toolCallManager.executeToolCall(toolCall);
-          return result;
-        } catch (error) {
-          return "I'm experiencing technical difficulties. Please try again later.";
-        }
-      }
-      async retryWithAdjustedParams(context) {
-        try {
-          const simplifiedContext = {
-            ...context,
-            conversationHistory: context.conversationHistory?.slice(-2) || [],
-            // Reduce context
-            discussionTopics: context.discussionTopics?.slice(-1) || []
-            // Reduce topics
-          };
-          const toolCall = {
-            id: `retry-${Date.now()}`,
-            tool: "generate_response",
-            parameters: {
-              message: "Provide a simple, direct response.",
-              context: simplifiedContext
-            },
-            expectedResponse: "text_response"
-          };
-          const result = await this.toolCallManager.executeToolCall(toolCall);
-          return result;
-        } catch (error) {
-          return "I'm having trouble processing that. Could you try asking in a different way?";
-        }
+        this.toolCallManager = new DiscussionToolCallManager(this.ollamaService);
+        this.intentAnalyzer = new DiscussionIntentAnalyzer();
       }
       async initialize() {
+        await this.ollamaService.initialize();
+        console.log("\u{1F4AC} Discussion Agent initialized");
+      }
+      async handleDiscussionMessage(message, context) {
+        console.log(`\u{1F4AC} Discussion Agent: Processing message in language: ${context?.language || "en"}`);
+        const intent = this.intentAnalyzer.analyzeIntent(message);
+        let response = "";
         try {
-          await this.ollamaService.initialize();
-          await this.multiModelService.initialize();
-          this.log("\u2705 Both Ollama and MultiModel services initialized successfully for Discussion Agent");
-          await this.loadExistingData();
-          this.addTask("ANALYZE_LEARNING_PATTERNS", {}, 3);
-          this.setupAgentCommunication();
-          this.log("Discussion Agent initialized with multi-model intelligence - Ready to facilitate meaningful conversations");
-          this.log(`\u{1F3AD} AI Personalities configured: ${Object.keys(this.aiPersonalities).join(", ")}`);
+          switch (intent.type) {
+            case "note_request":
+              response = await this.toolCallManager.generateNoteResponse(message, context);
+              break;
+            case "translation_request":
+              response = await this.toolCallManager.generateDiscussionResponse(message, context);
+              break;
+            case "question":
+              let contextResult = null;
+              if (context?.documentId) {
+                contextResult = await this.toolCallManager.searchDiscussionContext(message, context);
+              }
+              response = await this.toolCallManager.generateDiscussionResponse(message, context);
+              if (contextResult && contextResult.sources && contextResult.sources.length > 0) {
+                response += `
+
+Relevant information:
+`;
+                response += contextResult.sources.map((s) => `\u2022 ${s.excerpt.substring(0, 100)}...`).join("\n");
+              }
+              break;
+            default:
+              response = await this.toolCallManager.generateDiscussionResponse(message, context);
+              break;
+          }
+          console.log(`\u2705 Discussion Agent: Generated response in ${context?.language || "en"}`);
+          return response;
         } catch (error) {
-          this.error(`\u274C Failed to initialize Discussion Agent: ${error}`);
-          throw error;
+          console.error(`\u274C Discussion Agent error: ${error}`);
+          const targetLanguage = context?.language || "en";
+          const fallbackResponses = {
+            "en": "I'm here to chat and help with discussions. What would you like to talk about?",
+            "es": "Estoy aqu\xED para charlar y ayudar con discusiones. \xBFDe qu\xE9 te gustar\xEDa hablar?",
+            "fr": "Je suis ici pour discuter et aider avec les conversations. De quoi voulez-vous parler ?",
+            "de": "Ich bin hier, um zu chatten und bei Diskussionen zu helfen. Wor\xFCber m\xF6chten Sie sprechen?",
+            "ja": "\u304A\u3057\u3083\u3079\u308A\u3084\u30C7\u30A3\u30B9\u30AB\u30C3\u30B7\u30E7\u30F3\u306E\u304A\u624B\u4F1D\u3044\u3092\u3057\u307E\u3059\u3002\u4F55\u306B\u3064\u3044\u3066\u8A71\u3057\u305F\u3044\u3067\u3059\u304B\uFF1F",
+            "ko": "\uB300\uD654\uC640 \uD1A0\uB860\uC744 \uB3C4\uC640\uB4DC\uB9AC\uACA0\uC2B5\uB2C8\uB2E4. \uBB34\uC5C7\uC5D0 \uB300\uD574 \uC774\uC57C\uAE30\uD558\uACE0 \uC2F6\uC73C\uC2E0\uAC00\uC694?"
+          };
+          return fallbackResponses[targetLanguage] || fallbackResponses.en;
         }
       }
-      async loadExistingData() {
-        try {
-          const annotations2 = await storage.getAnnotations(2);
-          for (const annotation of annotations2) {
-            const userId = annotation.userId || 1;
-            if (!this.userNotes.has(userId)) {
-              this.userNotes.set(userId, []);
-            }
-            const note = {
-              id: annotation.id.toString(),
-              content: annotation.note,
-              // Use 'note' property
-              timestamp: new Date(annotation.createdAt),
-              userId,
-              documentId: annotation.documentId,
-              chapter: annotation.chapter,
-              tags: [],
-              type: annotation.type || "user"
-            };
-            this.userNotes.get(userId).push(note);
-          }
-          this.log(`Loaded ${annotations2.length} existing notes`);
-        } catch (error) {
-          this.warn(`Could not load existing data: ${error}`);
-        }
-      }
-      setupAgentCommunication() {
-        this.on("agentInsightResponse", (data) => {
-          this.log(`Received insight from ${data.fromAgent}: ${data.insight}`);
-          if (data.sessionId) {
-            const session = this.discussionSessions.get(data.sessionId);
-            if (session) {
-              session.conversationHistory.push({
-                id: `insight-${Date.now()}`,
-                role: "system",
-                content: `\u{1F4A1} Insight from ${data.fromAgent}: ${data.insight}`,
-                timestamp: /* @__PURE__ */ new Date(),
-                type: "insight"
-              });
-            }
-          }
-        });
-        this.on("studyAssistantContext", (data) => {
-          this.log(`Received study context: ${data.expertise}`);
-        });
-        this.on("crossReference", (data) => {
-          this.log(`Cross-reference available: ${data.reference}`);
-        });
-        this.on("learningInsight", (data) => {
-          this.emit("shareWithAgents", {
-            type: "discussion_learning",
-            data,
-            fromAgent: "DiscussionAgent"
-          });
-        });
-      }
+      // Process task for compatibility
       async processTask(task) {
-        this.log(`Processing discussion task: ${task.type}`);
-        switch (task.type) {
-          case "START_DISCUSSION":
-            await this.startDiscussion(task.data);
-            break;
-          case "ANALYZE_LEARNING_PATTERNS":
-            await this.analyzeLearningPatterns();
-            break;
-          case "GENERATE_DISCUSSION_INSIGHTS":
-            await this.generateDiscussionInsights(task.data);
-            break;
-          case "CONNECT_WITH_EXPERT":
-            await this.connectWithExpertAgent(task.data);
-            break;
-          case "SAVE_NOTE":
-            await this.saveDiscussionNote(task.data);
-            break;
-          default:
-            this.warn(`Unknown discussion task type: ${task.type}`);
+        if (task.type === "DISCUSS") {
+          return await this.handleDiscussionMessage(task.data.message, task.data.context);
         }
         return null;
       }
       async cleanup() {
-        this.log("Cleaning up Discussion Agent");
-        await this.saveLearningPatterns();
-      }
-      // 🚀 ENHANCED: Main discussion handling with new architecture
-      async handleDiscussionMessage(message, context) {
-        try {
-          const session = await this._getOrCreateSession(context);
-          if (context?.isContextRestore) {
-            this.log(`Restoring conversation context for session ${session.sessionId}`);
-            return "I've restored our conversation context. I remember what we discussed earlier and I'm ready to continue our conversation!";
-          }
-          if (context?.language && context.language !== session.language) {
-            session.language = context.language;
-            this.log(`\u{1F310} Language set from context: ${context.language}`);
-          } else if (!session.language || session.language === "en") {
-            const detectedLanguage = await this.detectLanguage(message);
-            if (detectedLanguage && detectedLanguage !== session.language) {
-              session.language = detectedLanguage;
-              this.log(`\u{1F310} Language detected and set: ${detectedLanguage}`);
-            }
-          }
-          this.log(`\u{1F310} Final session language: ${session.language}`);
-          this.log(`\u{1F310} Translation service available: ${this.translationService ? "YES" : "NO"}`);
-          if (session.language && session.language !== "en" && !this.translationService) {
-            this.warn(`\u274C Target language is ${session.language} but no translation service is available!`);
-          }
-          session.conversationHistory.push({
-            id: `user-${Date.now()}`,
-            role: "user",
-            content: message,
-            timestamp: /* @__PURE__ */ new Date()
-          });
-          const userIntent = this.intentAnalyzer.analyzeIntent(message);
-          this.log(`\u{1F3AF} Intent detected: ${userIntent.type} (confidence: ${userIntent.confidence})`);
-          let response;
-          if (session.mode === "group") {
-            response = await this.handleGroupDiscussion(message, session);
-          } else {
-            response = await this.executeToolCallPipeline(message, session, userIntent);
-          }
-          const validation = this.toolCallValidator.validateResponse(response, "text_response");
-          if (!validation.isValid) {
-            this.warn(`Response validation failed: ${validation.issues.join(", ")}`);
-            response = await this.errorRecoveryManager.handleError(
-              new Error("Response validation failed"),
-              { message, session },
-              this
-            );
-          }
-          session.conversationHistory.push({
-            id: `assistant-${Date.now()}`,
-            role: "assistant",
-            content: response,
-            timestamp: /* @__PURE__ */ new Date()
-          });
-          await this.learnFromInteraction(message, response, session);
-          return response;
-        } catch (error) {
-          this.error(`Critical error in handleDiscussionMessage: ${error}`);
-          return await this.errorRecoveryManager.handleError(error, { message, context }, this);
-        }
-      }
-      // 🚀 NEW: Enhanced tool call pipeline
-      async executeToolCallPipeline(message, session, userIntent) {
-        try {
-          const requiredTools = this.determineRequiredTools(userIntent, session, message);
-          this.log(`\u{1F527} Executing tools: ${requiredTools.map((t) => t.tool).join(", ")}`);
-          const results = [];
-          for (const toolCall of requiredTools) {
-            try {
-              const result = await this.toolCallManager.executeToolCall(toolCall);
-              results.push(result);
-              this.log(`\u2705 Tool ${toolCall.tool} completed successfully`);
-            } catch (error) {
-              this.error(`\u274C Tool ${toolCall.tool} failed: ${error}`);
-              const fallbackResult = await this.executeToolFallback(toolCall, error);
-              results.push(fallbackResult);
-            }
-          }
-          const finalResponse = await this.synthesizeResponse(results, message, session, userIntent);
-          return finalResponse;
-        } catch (error) {
-          this.error(`Tool call pipeline failed: ${error}`);
-          return await this.errorRecoveryManager.handleError(error, { message, session }, this);
-        }
-      }
-      // 🚀 NEW: Determine required tools based on intent
-      determineRequiredTools(userIntent, session, originalMessage) {
-        const toolCalls = [];
-        const baseParams = { context: session };
-        const getQueryText = () => {
-          const entitiesText = userIntent.entities.join(" ").trim();
-          return entitiesText || originalMessage;
-        };
-        switch (userIntent.type) {
-          case "note_request":
-            toolCalls.push({
-              id: `note-${Date.now()}`,
-              tool: "save_note",
-              parameters: {
-                content: this.extractNoteContent(getQueryText()),
-                userId: session.userId,
-                documentId: session.documentId,
-                chapter: session.chapter,
-                ...baseParams
-              },
-              expectedResponse: "note"
-            });
-            toolCalls.push({
-              id: `confirm-${Date.now()}`,
-              tool: "generate_response",
-              parameters: {
-                message: `Generate a confirmation message for saving the note: "${getQueryText()}"`,
-                ...baseParams
-              },
-              expectedResponse: "text_response"
-            });
-            break;
-          case "group_discussion":
-            toolCalls.push({
-              id: `panel-${Date.now()}`,
-              tool: "generate_panel_responses",
-              parameters: {
-                message: getQueryText(),
-                context: session
-              },
-              expectedResponse: "panel_response"
-            });
-            break;
-          case "translation_request":
-            toolCalls.push({
-              id: `translate-${Date.now()}`,
-              tool: "translate_response",
-              parameters: {
-                text: getQueryText(),
-                targetLanguage: this.detectTargetLanguage(getQueryText())
-              },
-              expectedResponse: "translation"
-            });
-            break;
-          case "question":
-          case "context_request":
-          case "general_discussion":
-          default:
-            toolCalls.push({
-              id: `search-${Date.now()}`,
-              tool: "search_context",
-              parameters: {
-                query: getQueryText(),
-                documentId: session.documentId,
-                chapter: session.chapter,
-                context: session
-              },
-              expectedResponse: "rag_result"
-            });
-            toolCalls.push({
-              id: `generate-${Date.now()}`,
-              tool: "generate_response",
-              parameters: {
-                message: `Generate a helpful response to: "${getQueryText()}"`,
-                context: session
-              },
-              expectedResponse: "text_response"
-            });
-            break;
-        }
-        return toolCalls;
-      }
-      // 🚀 NEW: Execute tool fallback
-      async executeToolFallback(failedToolCall, error) {
-        this.log(`\u{1F504} Executing fallback for tool: ${failedToolCall.tool}`);
-        switch (failedToolCall.tool) {
-          case "search_context":
-            return { sources: [], confidence: 0 };
-          case "generate_response":
-            return "I'm here to help. Could you please rephrase your question?";
-          case "save_note":
-            return {
-              id: `fallback-note-${Date.now()}`,
-              content: failedToolCall.parameters.content || "Note content",
-              timestamp: /* @__PURE__ */ new Date(),
-              type: "fallback"
-            };
-          default:
-            return "I'm experiencing technical difficulties. Please try again.";
-        }
-      }
-      // 🚀 NEW: Synthesize final response from tool results
-      async synthesizeResponse(results, originalMessage, session, userIntent) {
-        try {
-          let finalResponse;
-          switch (userIntent.type) {
-            case "note_request":
-              const noteResult = results.find((r) => r.id && r.type === "ai");
-              const confirmResult = results.find((r) => typeof r === "string");
-              finalResponse = confirmResult || `\u{1F4DD} Note saved successfully!`;
-              break;
-            case "group_discussion":
-              const panelResults = results.find((r) => Array.isArray(r));
-              if (panelResults && panelResults.length > 0) {
-                finalResponse = panelResults.join("\n\n");
-              } else {
-                finalResponse = "Our AI panel is ready to discuss this topic!";
-              }
-              break;
-            case "translation_request":
-              const translationResult = results.find((r) => r.translatedText);
-              finalResponse = translationResult?.translatedText || "Translation service is currently unavailable.";
-              break;
-            case "question":
-            case "context_request":
-            case "general_discussion":
-            default:
-              const contextResult = results.find((r) => r.sources);
-              const responseResult = results.find((r) => typeof r === "string");
-              if (this.isSimpleGreeting(originalMessage)) {
-                finalResponse = responseResult || "\xA1Hola! \xBFC\xF3mo puedo ayudarte hoy?";
-              } else if (contextResult && contextResult.sources.length > 0) {
-                finalResponse = responseResult || "I found some relevant information for you.";
-              } else {
-                finalResponse = responseResult || "I'm here to help with your questions!";
-              }
-              break;
-          }
-          if (session.language && session.language !== "en") {
-            finalResponse = await this.translateResponse(finalResponse, session.language);
-          }
-          return finalResponse;
-        } catch (error) {
-          this.error(`Response synthesis failed: ${error}`);
-          let errorMsg = "I'm having trouble processing that. Could you try asking in a different way?";
-          if (session.language && session.language !== "en") {
-            errorMsg = await this.translateResponse(errorMsg, session.language);
-          }
-          return errorMsg;
-        }
-      }
-      // 🚀 NEW: Helper method to detect target language
-      detectTargetLanguage(text2) {
-        const languagePatterns = {
-          "es": /(español|spanish|en español)/i,
-          "fr": /(français|french|en français)/i,
-          "de": /(deutsch|german|auf deutsch)/i,
-          "it": /(italiano|italian|in italiano)/i,
-          "pt": /(português|portuguese|em português)/i
-        };
-        for (const [lang, pattern] of Object.entries(languagePatterns)) {
-          if (pattern.test(text2)) {
-            return lang;
-          }
-        }
-        return "en";
-      }
-      async _getOrCreateSession(context) {
-        const sessionId = context?.sessionId || `session_${Date.now()}`;
-        let session = this.discussionSessions.get(sessionId);
-        if (!session) {
-          session = await this.createDiscussionSession(sessionId, context);
-          this.log(`Created new discussion session: ${sessionId}`);
-        } else {
-          if (context?.documentId && context.documentId !== session.documentId) {
-            session.documentId = context.documentId;
-            this.log(`Updated session ${sessionId} documentId to ${context.documentId}`);
-          }
-          if (context?.chapter && context.chapter !== session.chapter) {
-            session.chapter = context.chapter;
-            this.log(`Updated session ${sessionId} chapter to ${context.chapter}`);
-          }
-          if (context?.language && context.language !== session.language) {
-            session.language = context.language;
-            this.log(`Updated session ${sessionId} language to ${context.language}`);
-          }
-          if (context?.socket && !session.socket) {
-            session.socket = context.socket;
-            this.log(`Updated session ${sessionId} with socket connection`);
-          }
-        }
-        return session;
-      }
-      async _getTranslatedFallbackError(error, language) {
-        let errorMessage = `Discussion is taking longer than usual. Please wait a moment and try again if you don't see a result.`;
-        if (language && language !== "en" && this.translationService) {
-          try {
-            const translatedError = await this.translationService.translateText({
-              text: errorMessage,
-              targetLanguage: language,
-              context: "general"
-            });
-            return translatedError.translatedText;
-          } catch (translationError) {
-            this.error(`Could not translate fallback error message: ${translationError.message}`);
-          }
-        }
-        return errorMessage;
-      }
-      // Checks if a message is a question
-      isQuestion(message) {
-        const trimmed = message.trim().toLowerCase();
-        const questionWords = ["what", "who", "where", "when", "why", "how", "which", "can", "is", "do", "are", "does", "tell me about"];
-        return questionWords.some((word) => trimmed.startsWith(word));
-      }
-      isSimpleGreeting(message) {
-        const lowerMsg = message.toLowerCase().trim();
-        const simpleGreetings = [
-          // English
-          "hello",
-          "hi",
-          "hey",
-          "good morning",
-          "good afternoon",
-          "good evening",
-          // Spanish
-          "hola",
-          "buenos d\xEDas",
-          "buenas tardes",
-          "buenas noches",
-          "qu\xE9 tal",
-          // French
-          "bonjour",
-          "bonsoir",
-          "salut",
-          "bonne journ\xE9e",
-          // Portuguese
-          "ol\xE1",
-          "oi",
-          "bom dia",
-          "boa tarde",
-          "boa noite",
-          // German
-          "hallo",
-          "guten morgen",
-          "guten tag",
-          "guten abend",
-          // Japanese
-          "\u3053\u3093\u306B\u3061\u306F",
-          "\u304A\u306F\u3088\u3046",
-          "\u3053\u3093\u3070\u3093\u306F",
-          "\u306F\u3058\u3081\u307E\u3057\u3066",
-          // Korean
-          "\uC548\uB155\uD558\uC138\uC694",
-          "\uC548\uB155",
-          "\uC88B\uC740 \uC544\uCE68",
-          "\uC88B\uC740 \uC800\uB141",
-          // Chinese
-          "\u4F60\u597D",
-          "\u65E9\u4E0A\u597D",
-          "\u665A\u4E0A\u597D",
-          "\u60A8\u597D",
-          // Arabic
-          "\u0627\u0644\u0633\u0644\u0627\u0645 \u0639\u0644\u064A\u0643\u0645",
-          "\u0645\u0631\u062D\u0628\u0627",
-          "\u0635\u0628\u0627\u062D \u0627\u0644\u062E\u064A\u0631",
-          "\u0645\u0633\u0627\u0621 \u0627\u0644\u062E\u064A\u0631",
-          // Russian
-          "\u043F\u0440\u0438\u0432\u0435\u0442",
-          "\u0434\u043E\u0431\u0440\u043E \u043F\u043E\u0436\u0430\u043B\u043E\u0432\u0430\u0442\u044C",
-          "\u0434\u043E\u0431\u0440\u043E\u0435 \u0443\u0442\u0440\u043E",
-          "\u0434\u043E\u0431\u0440\u044B\u0439 \u0432\u0435\u0447\u0435\u0440",
-          // Italian
-          "ciao",
-          "buongiorno",
-          "buonasera",
-          "salve",
-          // Dutch
-          "hallo",
-          "goedemorgen",
-          "goedemiddag",
-          "goedenavond"
-        ];
-        return simpleGreetings.some(
-          (greeting) => lowerMsg === greeting || lowerMsg.startsWith(greeting + " ") || lowerMsg.endsWith(" " + greeting)
-        );
-      }
-      async generateRAGEnhancedResponse(message, context) {
-        try {
-          this.log(`Generating RAG response for: "${message.substring(0, 50)}..."`);
-          const { ragQuery, agentContext } = await this._prepareContext(message, context);
-          const englishResponse = await this.generateDiscussionResponse(ragQuery, context, agentContext);
-          const finalResponse = await this.translateResponse(englishResponse, context.language || "en");
-          return finalResponse;
-        } catch (error) {
-          this.error(`RAG response generation failed: ${error.message}`);
-          throw error;
-        }
-      }
-      async _prepareContext(message, context) {
-        const agentContext = await this.getAgentContext(message, context);
-        const ragContextString = await this.buildRAGContext(message, context);
-        const ragQuery = `${message}
-
-Relevant Information:
-${ragContextString}`;
-        return { ragQuery, agentContext };
-      }
-      async createDiscussionSession(sessionId, context) {
-        const newSession = {
-          userId: context?.userId || 2,
-          documentId: context?.documentId,
-          chapter: context?.chapter,
-          sessionId,
-          language: context?.language || "en",
-          mode: context?.mode || "normal",
-          socket: context?.socket,
-          conversationHistory: [],
-          notes: [],
-          discussionTopics: [],
-          learningData: /* @__PURE__ */ new Map(),
-          groupDiscussion: context?.mode === "group" ? {
-            activeParticipants: Object.keys(this.aiPersonalities),
-            turnOrder: this.shuffleArray(Object.keys(this.aiPersonalities)),
-            currentTurn: 0,
-            roundCount: 0
-          } : void 0
-        };
-        if (context?.initialMessage) {
-          newSession.conversationHistory.push({
-            id: "welcome",
-            role: "system",
-            content: context.initialMessage,
-            timestamp: /* @__PURE__ */ new Date()
-          });
-        }
-        if (context?.conversationHistory && Array.isArray(context.conversationHistory)) {
-          this.log(`Restoring ${context.conversationHistory.length} messages to session ${sessionId}`);
-          newSession.conversationHistory = context.conversationHistory.map((msg) => ({
-            id: msg.id || `restored-${Date.now()}-${Math.random()}`,
-            role: msg.role,
-            content: msg.content,
-            timestamp: msg.timestamp ? new Date(msg.timestamp) : /* @__PURE__ */ new Date(),
-            type: msg.type || "discussion",
-            tags: msg.tags || [],
-            aiPersonality: msg.aiPersonality,
-            modelUsed: msg.modelUsed
-          }));
-          for (const msg of newSession.conversationHistory) {
-            if (msg.role === "user" || msg.role === "assistant") {
-              const topics = await this.extractDiscussionTopics(msg.content);
-              newSession.discussionTopics.push(...topics);
-            }
-          }
-          newSession.discussionTopics = Array.from(new Set(newSession.discussionTopics));
-          this.log(`Restored session ${sessionId} with ${newSession.conversationHistory.length} messages and ${newSession.discussionTopics.length} topics`);
-        }
-        this.discussionSessions.set(sessionId, newSession);
-        return newSession;
-      }
-      shuffleArray(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-          const j = Math.floor(Math.random() * (i + 1));
-          [array[i], array[j]] = [array[j], array[i]];
-        }
-        return array;
-      }
-      isNoteRequest(message) {
-        const noteKeywords = ["take a note", "remember that", "note down", "save this"];
-        const lowerMessage = message.toLowerCase();
-        return noteKeywords.some((keyword) => lowerMessage.includes(keyword));
-      }
-      async handleNoteRequest(message, context) {
-        try {
-          const noteContent = this.extractNoteContent(message);
-          const aiNote = {
-            id: `note-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            content: noteContent,
-            timestamp: /* @__PURE__ */ new Date(),
-            userId: context.userId,
-            documentId: context.documentId,
-            chapter: context.chapter,
-            tags: await this.generateNoteTags(noteContent),
-            type: "ai",
-            relatedMessages: context.conversationHistory.slice(-3).map((msg) => msg.id)
-          };
-          context.notes.push(aiNote);
-          if (!this.userNotes.has(context.userId)) {
-            this.userNotes.set(context.userId, []);
-          }
-          this.userNotes.get(context.userId).push(aiNote);
-          await this.saveNoteToPersistentStorage(aiNote);
-          if (context.socket) {
-            context.socket.emit("noteCreated", {
-              note: aiNote,
-              success: true,
-              message: "Note saved successfully"
-            });
-            this.log(`\u2705 Emitted noteCreated event to frontend for note: ${aiNote.id}`);
-          }
-          let response = `\u{1F4DD} Note saved! I've captured: "${noteContent}"
-
-Tags: ${aiNote.tags?.join(", ")}
-
-Would you like to continue our discussion or explore this idea further?`;
-          if (context.language && context.language !== "en" && this.ollamaService) {
-            try {
-              this.log(`\u{1F310} [NOTE] Applying language transformation to ${context.language}`);
-              const languagePrompt = `Transform this response to be in ${context.language}. Keep the same friendly tone and content:
-
-${response}`;
-              const languageAwareResponse = await this.ollamaService.generateTextWithLanguage(languagePrompt, context.language);
-              if (!this.isResponseInEnglish(languageAwareResponse)) {
-                this.log(`\u2705 [NOTE] Successfully transformed response to ${context.language}`);
-                return languageAwareResponse;
-              } else if (this.translationService) {
-                const translatedResponse = await this.translationService.translateText({
-                  text: response,
-                  targetLanguage: context.language,
-                  context: "general"
-                });
-                this.log(`\u2705 [NOTE] Successfully translated response to ${context.language}`);
-                return translatedResponse.translatedText;
-              }
-            } catch (error) {
-              this.warn(`Note response language processing failed: ${error}`);
-            }
-          }
-          return response;
-        } catch (error) {
-          this.error(`Failed to handle note request: ${error}`);
-          if (context.socket) {
-            context.socket.emit("noteCreated", {
-              note: null,
-              success: false,
-              error: true,
-              message: "Failed to save note"
-            });
-            this.log(`\u274C Emitted noteCreated error event to frontend`);
-          }
-          let errorMessage = "I had trouble saving that note. Could you try rephrasing it?";
-          if (context.language && context.language !== "en" && this.translationService) {
-            try {
-              const translatedError = await this.translationService.translateText({
-                text: errorMessage,
-                targetLanguage: context.language,
-                context: "general"
-              });
-              return translatedError.translatedText;
-            } catch {
-            }
-          }
-          return errorMessage;
-        }
-      }
-      extractNoteContent(message) {
-        const noteKeywords = ["take a note", "remember that", "note down", "save this"];
-        let content = message;
-        for (const keyword of noteKeywords) {
-          content = content.replace(new RegExp(keyword, "gi"), "").trim();
-        }
-        content = content.replace(/^[:,-]/, "").trim();
-        return content || message;
-      }
-      async generateNoteTags(content) {
-        try {
-          const words = content.toLowerCase().split(/\W+/);
-          const significantWords = words.filter((word) => word.length > 3);
-          return significantWords.slice(0, 3);
-        } catch {
-          return ["discussion"];
-        }
-      }
-      async saveNoteToPersistentStorage(note) {
-        try {
-          const annotation = await storage.createAnnotation({
-            userId: note.userId,
-            documentId: -1,
-            // Always use -1 for AI Discussion notes
-            chapter: note.chapter || 1,
-            paragraph: null,
-            // AI notes typically don't have specific paragraph
-            selectedText: "",
-            // AI generated notes don't have selected text
-            note: note.content,
-            type: "ai"
-            // Mark as AI-generated note
-          });
-          this.log(`AI note saved to database with ID ${annotation.id}: ${note.content.substring(0, 50)}...`);
-        } catch (error) {
-          this.warn(`Could not save note to persistent storage: ${error}`);
-          throw error;
-        }
-      }
-      async extractDiscussionTopics(message) {
-        try {
-          const words = message.toLowerCase().split(/\W+/);
-          const topicWords = words.filter((word) => word.length > 4);
-          return topicWords.slice(0, 3);
-        } catch {
-          return [];
-        }
-      }
-      extractDomain(message) {
-        const lowerMessage = message.toLowerCase();
-        const domainPatterns = {
-          "Literature": /literature|novel|poetry|story|narrative|fiction|character|plot|theme|author|writing|prose|verse|drama/,
-          "Philosophy": /philosophy|philosophical|ethics|moral|wisdom|truth|meaning|existence|consciousness|reality|metaphysics/,
-          "History": /history|historical|past|ancient|timeline|era|period|civilization|dynasty|empire|war|revolution/,
-          "Psychology": /psychology|psychological|mind|behavior|emotion|personality|consciousness|mental|cognitive|therapy/,
-          "Science": /science|scientific|research|theory|hypothesis|experiment|discovery|physics|chemistry|biology|quantum|mechanics/,
-          "Religion": /religion|religious|spiritual|faith|belief|god|divine|sacred|prayer|worship|scripture|theology/,
-          "Politics": /politics|political|government|power|authority|law|justice|rights|democracy|leadership|policy/,
-          "Economics": /economics|economic|finance|money|wealth|trade|market|business|capitalism|socialism|poverty/,
-          "Technology": /technology|technical|digital|computer|internet|innovation|invention|engineering|machine|programming|software|algorithm/,
-          "Art": /art|artistic|creative|beauty|aesthetic|design|culture|expression|visual|music|dance|theater/,
-          "Society": /society|social|community|culture|civilization|human|people|relationship|family|education/,
-          "Self-Help": /self|personal|improvement|growth|success|motivation|habit|goal|development|productivity|mindset/,
-          "Biography": /biography|life|person|individual|experience|journey|achievement|struggle|famous|leader/,
-          "Adventure": /adventure|journey|travel|exploration|quest|discovery|danger|courage|survival|expedition/,
-          "Mystery": /mystery|detective|crime|investigation|clue|solve|murder|secret|hidden|unknown/,
-          "Romance": /romance|love|relationship|heart|emotion|passion|marriage|dating|couple|attraction/,
-          "Fantasy": /fantasy|magic|magical|wizard|dragon|kingdom|quest|prophecy|supernatural|mythical/,
-          "Horror": /horror|fear|scary|terror|ghost|monster|evil|dark|nightmare|supernatural/,
-          "Memoir": /memoir|memory|personal|experience|life|childhood|family|reflection|story|journey/
-        };
-        for (const [domain, pattern] of Object.entries(domainPatterns)) {
-          if (pattern.test(lowerMessage)) {
-            return domain;
-          }
-        }
-        return "General";
-      }
-      async getAgentContext(message, context) {
-        try {
-          let agentContext = "";
-          if (context.documentId && context.chapter) {
-            try {
-              const document = await storage.getDocument(context.documentId);
-              if (document) {
-                agentContext += `Currently reading: "${document.title}", Chapter ${context.chapter}
-`;
-                agentContext += `Document context available for meaningful discussion.
-
-`;
-              }
-            } catch (error) {
-              this.warn(`Could not get document context: ${error}`);
-            }
-          }
-          try {
-            const ragContext = await this.buildRAGContext(message, context);
-            if (ragContext) {
-              agentContext += ragContext;
-            }
-          } catch (error) {
-            this.warn(`RAG context enhancement failed: ${error}`);
-          }
-          try {
-            const definitions = await this.definitionsService.getContextualDefinitions({
-              userQuery: message,
-              documentId: context.documentId,
-              chapter: context.chapter,
-              topics: context.discussionTopics,
-              domain: this.extractDomain(message)
-            });
-            if (definitions.length > 0) {
-              agentContext += `
-\u{1F4DA} Relevant Learned Definitions:
-`;
-              definitions.slice(0, 3).forEach((def) => {
-                agentContext += `\u2022 ${def.term}: ${def.definition.substring(0, 150)}...
-`;
-              });
-              agentContext += `
-Use these definitions to provide more informed responses.
-`;
-            }
-          } catch (error) {
-            this.warn(`Failed to get contextual definitions: ${error}`);
-          }
-          this.emit("requestAgentInsights", {
-            message,
-            documentId: context.documentId,
-            chapter: context.chapter,
-            topics: context.discussionTopics,
-            fromAgent: "DiscussionAgent",
-            requestId: `req-${Date.now()}`
-          });
-          this.emit("shareDiscussionTopics", {
-            topics: context.discussionTopics,
-            documentId: context.documentId,
-            chapter: context.chapter,
-            fromAgent: "DiscussionAgent"
-          });
-          return agentContext;
-        } catch (error) {
-          this.warn(`Failed to get agent context: ${error}`);
-          return "";
-        }
-      }
-      // 🧠 NEW: RAG-Enhanced Context Building
-      async buildRAGContext(message, context) {
-        try {
-          this.log(`\u{1F50D} Building RAG context for discussion: "${message.substring(0, 50)}..."`);
-          const ragContext = {
-            userId: context.userId,
-            currentDocument: context.documentId,
-            currentChapter: context.chapter,
-            conversationHistory: context.conversationHistory.slice(-3).map((msg) => msg.content),
-            // Reduced from 5 to 3
-            userStudyPatterns: context.discussionTopics.slice(-5),
-            // Reduced from 10 to 5
-            preferredTopics: context.discussionTopics.slice(-3),
-            // Reduced from 5 to 3
-            studyLevel: "intermediate",
-            // Default for discussion
-            targetLanguage: context.language
-            // Pass language to RAG service
-          };
-          const discussionQuery = context.documentId && context.chapter ? `${message} chapter ${context.chapter}` : `discussion about: ${message}`;
-          const ragResponse = await documentRAGService.processRAGQuery(
-            discussionQuery,
-            ragContext,
-            {
-              maxSources: 2,
-              // Keep low to prevent information overload
-              includeAnnotations: false,
-              // Disabled to prevent cross-contamination
-              includeMemories: false,
-              // CRITICAL: No memories from other books
-              searchDepth: "quick",
-              // Fast search for responsive discussion
-              useEmbeddings: true,
-              singleDocumentOnly: true,
-              // CRITICAL: Restrict search to current document only
-              targetLanguage: context.language
-              // Pass language to RAG service
-            }
-          );
-          let enhancedContext = "";
-          if (ragResponse.sources.length > 0) {
-            const filteredSources = ragResponse.sources.filter((source) => {
-              if (!context.documentId) return true;
-              return source.documentTitle && (source.documentTitle.includes("Current") || !source.documentTitle.includes("Book") || source.source?.id === context.documentId);
-            });
-            if (filteredSources.length > 0) {
-              enhancedContext += `\u{1F50D} **Related materials from your current reading:**
-`;
-              filteredSources.slice(0, 2).forEach((source, index2) => {
-                const sourceInfo = source.source?.chapter ? ` (Chapter ${source.source.chapter})` : "";
-                enhancedContext += `\u{1F4D6} "${source.excerpt.substring(0, 80)}..."${sourceInfo}
-`;
-              });
-              enhancedContext += "\n";
-            }
-          }
-          this.log(`\u2705 RAG context enhanced with ${ragResponse.sources.length} sources (confidence: ${ragResponse.confidence}) - strictly current document only`);
-          return enhancedContext;
-        } catch (error) {
-          this.warn(`RAG context building failed: ${error}`);
-          return "";
-        }
-      }
-      async generateDiscussionResponse(message, context, agentContext) {
-        if (!this.ollamaService) {
-          this.error("Ollama service is not connected.");
-          return "I am currently unable to process your request.";
-        }
-        const isRepetitive = this.checkForRepetitiveQuestions(message, context);
-        if (isRepetitive) {
-          return await this.handleRepetitiveQuestion(message, context);
-        }
-        const systemPrompt = this.buildDiscussionSystemPrompt(context, agentContext);
-        const userPrompt = `User query: "${message}"
-
-${agentContext}`;
-        const fullPrompt = `${systemPrompt}
-
-${userPrompt}`;
-        try {
-          if (context.language && context.language !== "en" && this.ollamaService) {
-            this.log(`\u{1F310} Generating discussion response in ${context.language}`);
-            const documentContext = context.documentId && context.chapter ? `Document ${context.documentId}, Chapter ${context.chapter}` : "";
-            const formattedPrompt = `${fullPrompt}
-
-FORMATTING INSTRUCTIONS:
-- Use clear paragraphs with proper spacing
-- Break up long responses into readable chunks
-- Use bullet points (\u2022) for lists
-- Keep sentences concise and engaging
-- Ensure proper punctuation and spacing`;
-            const response = await this.ollamaService.generateTextWithLanguage(formattedPrompt, context.language, {
-              context: documentContext
-            });
-            if (!this.isResponseInEnglish(response)) {
-              this.log(`\u2705 Successfully generated response in ${context.language}`);
-              const refinedResponse = await this.refineResponse(response, context);
-              const factCheckedResponse = await this.performFactCheck(refinedResponse, agentContext, message);
-              await this.learnFromInteraction(message, factCheckedResponse, context);
-              return factCheckedResponse;
-            } else {
-              this.log(`\u26A0\uFE0F LLM generated in English despite ${context.language} instructions, using translation service`);
-              const refinedResponse = await this.refineResponse(response, context);
-              const factCheckedResponse = await this.performFactCheck(refinedResponse, agentContext, message);
-              if (this.translationService) {
-                try {
-                  this.log(`\u{1F504} Translating English response to ${context.language}`);
-                  const translatedResponse = await this.translationService.translateText({
-                    text: factCheckedResponse,
-                    targetLanguage: context.language,
-                    context: "general"
-                  });
-                  if (translatedResponse && translatedResponse.translatedText) {
-                    this.log(`\u2705 Successfully translated response to ${context.language}`);
-                    await this.learnFromInteraction(message, translatedResponse.translatedText, context);
-                    return translatedResponse.translatedText;
-                  } else {
-                    this.warn(`Translation service returned invalid result, falling back to English`);
-                    await this.learnFromInteraction(message, factCheckedResponse, context);
-                    return factCheckedResponse;
-                  }
-                } catch (translationError) {
-                  this.error(`Translation service failed: ${translationError}`);
-                  this.log(`\u274C Translation failed, returning English response`);
-                  await this.learnFromInteraction(message, factCheckedResponse, context);
-                  return factCheckedResponse;
-                }
-              } else {
-                this.warn(`No translation service available, returning English response`);
-                await this.learnFromInteraction(message, factCheckedResponse, context);
-                return factCheckedResponse;
-              }
-            }
-          } else {
-            this.log(`\u{1F5E3}\uFE0F Generating discussion response in English`);
-            const documentContext = context.documentId && context.chapter ? `Document ${context.documentId}, Chapter ${context.chapter}` : "";
-            const formattedPrompt = `${fullPrompt}
-
-FORMATTING INSTRUCTIONS:
-- Use clear paragraphs with proper spacing
-- Break up long responses into readable chunks
-- Use bullet points (\u2022) for lists
-- Keep sentences concise and engaging
-- Ensure proper punctuation and spacing`;
-            const response = await this.ollamaService.generateText(formattedPrompt, {
-              context: documentContext
-            });
-            const refinedResponse = await this.refineResponse(response, context);
-            const factCheckedResponse = await this.performFactCheck(refinedResponse, agentContext, message);
-            this.log(`Generated English response: "${factCheckedResponse.substring(0, 100)}..."`);
-            await this.learnFromInteraction(message, factCheckedResponse, context);
-            return factCheckedResponse;
-          }
-        } catch (error) {
-          this.error(`Error in generateDiscussionResponse: ${error}`);
-          this.log("Falling back to simpler generation model due to error.");
-          try {
-            if (context.language && context.language !== "en" && this.ollamaService) {
-              this.log(`\u{1F310} Using language-aware fallback for ${context.language}`);
-              const fallbackPrompt = `User message: "${message}".
-Context: "${agentContext}"
-Respond directly to the user message in ${context.language}.
-
-FORMATTING: Use clear paragraphs, proper spacing, and bullet points (\u2022) for lists.`;
-              const fallbackDocumentContext = context.documentId && context.chapter ? `Document ${context.documentId}, Chapter ${context.chapter}` : "";
-              const fallbackResponse = await this.ollamaService.generateTextWithLanguage(fallbackPrompt, context.language, {
-                context: fallbackDocumentContext
-              });
-              if (!this.isResponseInEnglish(fallbackResponse)) {
-                const refinedFallbackResponse = await this.refineResponse(fallbackResponse, context);
-                this.log(`\u2705 Generated fallback response in ${context.language}`);
-                await this.learnFromInteraction(message, refinedFallbackResponse, context);
-                return refinedFallbackResponse;
-              } else {
-                const refinedFallbackResponse = await this.refineResponse(fallbackResponse, context);
-                if (this.translationService) {
-                  try {
-                    this.log(`\u{1F504} Translating fallback response to ${context.language}`);
-                    const translatedFallback = await this.translationService.translateText({
-                      text: refinedFallbackResponse,
-                      targetLanguage: context.language,
-                      context: "general"
-                    });
-                    if (translatedFallback && translatedFallback.translatedText) {
-                      this.log(`\u2705 Successfully translated fallback to ${context.language}`);
-                      await this.learnFromInteraction(message, translatedFallback.translatedText, context);
-                      return translatedFallback.translatedText;
-                    }
-                  } catch (translationError) {
-                    this.error(`Fallback translation failed: ${translationError}`);
-                  }
-                }
-                this.log(`\u274C All translation attempts failed, returning English fallback`);
-                await this.learnFromInteraction(message, refinedFallbackResponse, context);
-                return refinedFallbackResponse;
-              }
-            } else {
-              const fallbackPrompt = `User message: "${message}".
-Context: "${agentContext}"
-Respond directly to the user message.
-
-FORMATTING: Use clear paragraphs, proper spacing, and bullet points (\u2022) for lists.`;
-              const fallbackDocumentContext = context.documentId && context.chapter ? `Document ${context.documentId}, Chapter ${context.chapter}` : "";
-              const fallbackResponse = await this.ollamaService.generateText(fallbackPrompt, {
-                context: fallbackDocumentContext
-              });
-              const refinedFallbackResponse = await this.refineResponse(fallbackResponse, context);
-              this.log(`Generated fallback response: "${refinedFallbackResponse.substring(0, 100)}..."`);
-              await this.learnFromInteraction(message, refinedFallbackResponse, context);
-              return refinedFallbackResponse;
-            }
-          } catch (fallbackError) {
-            this.error(`Fallback generation failed: ${fallbackError}`);
-            if (context.language && context.language !== "en" && this.translationService) {
-              try {
-                const errorMessage = "I'm having trouble processing that request right now. Please try again in a moment.";
-                const translatedError = await this.translationService.translateText({
-                  text: errorMessage,
-                  targetLanguage: context.language,
-                  context: "general"
-                });
-                if (translatedError && translatedError.translatedText) {
-                  return translatedError.translatedText;
-                }
-              } catch {
-              }
-            }
-            return "I'm having trouble processing that request right now. Please try again in a moment.";
-          }
-        }
-      }
-      checkForRepetitiveQuestions(message, context) {
-        if (context.conversationHistory.length < 2) return false;
-        const recentMessages = context.conversationHistory.slice(-6);
-        const userMessages = recentMessages.filter((msg) => msg.role === "user");
-        if (userMessages.length < 2) return false;
-        const currentMessage = message.toLowerCase().trim();
-        if (currentMessage.length <= 10 && ["hello", "hi", "hey", "thanks", "thank you", "ok", "okay", "yes", "no"].includes(currentMessage)) {
-          return false;
-        }
-        if (currentMessage.length > 10) {
-          for (const msg of userMessages) {
-            if (msg.content.toLowerCase().trim() === currentMessage) {
-              this.log(`Detected exact duplicate question: "${message}"`);
-              return true;
-            }
-          }
-        }
-        if (currentMessage.length <= 15) {
-          return false;
-        }
-        const currentWords = currentMessage.split(/\s+/).filter((word) => word.length > 3);
-        if (currentWords.length < 3) return false;
-        for (const msg of userMessages) {
-          const msgWords = msg.content.toLowerCase().split(/\s+/).filter((word) => word.length > 3);
-          const commonWords = currentWords.filter((word) => msgWords.includes(word));
-          if (commonWords.length >= Math.min(currentWords.length, msgWords.length) * 0.8 && currentWords.length >= 4) {
-            this.log(`Detected similar question: "${message}" vs "${msg.content}"`);
-            return true;
-          }
-        }
-        return false;
-      }
-      async handleRepetitiveQuestion(message, context) {
-        const recentMessages = context.conversationHistory.slice(-12);
-        let lastUserQuestion = "";
-        let lastAssistantAnswer = "";
-        for (let i = recentMessages.length - 2; i >= 0; i--) {
-          if (recentMessages[i].role === "user" && recentMessages[i + 1]?.role === "assistant") {
-            lastUserQuestion = recentMessages[i].content;
-            lastAssistantAnswer = recentMessages[i + 1].content;
-            break;
-          }
-        }
-        if (lastUserQuestion && lastAssistantAnswer) {
-          const followUpPrompt = `The user previously asked: "${lastUserQuestion}"
-Your answer was: "${lastAssistantAnswer}"
-
-Now the user followed up with: "${message}"
-
-Provide a thoughtful, detailed answer (up to 8-10 sentences if needed) that builds on your previous answer and directly addresses the user's follow-up. Do not just repeat your previous answer. Only ask a follow-up question at the end if it feels natural.`;
-          const followUpDocumentContext = context.documentId && context.chapter ? `Document ${context.documentId}, Chapter ${context.chapter}` : "";
-          if (context.language && context.language !== "en" && this.ollamaService) {
-            const languagePrompt = `${followUpPrompt}
-
-IMPORTANT: Respond EXCLUSIVELY in ${context.language}.
-
-FORMATTING: Use clear paragraphs, proper spacing, and bullet points (\u2022) for lists.`;
-            const response = await this.ollamaService.generateTextWithLanguage(languagePrompt, context.language, {
-              context: followUpDocumentContext
-            });
-            if (!this.isResponseInEnglish(response)) {
-              return response.trim();
-            } else {
-              const translatedResponse = await this.translationService.translateText({
-                text: response.trim(),
-                targetLanguage: context.language,
-                context: "general"
-              });
-              return translatedResponse.translatedText;
-            }
-          } else {
-            const response = await this.ollamaService.generateText(followUpPrompt, {
-              context: followUpDocumentContext
-            });
-            return response.trim();
-          }
-        }
-        if (context.language && context.language !== "en" && this.translationService) {
-          try {
-            const fallbackMessage = "I remember we discussed this before. Is there a new angle or detail you'd like to explore further?";
-            const translatedFallback = await this.translationService.translateText({
-              text: fallbackMessage,
-              targetLanguage: context.language,
-              context: "general"
-            });
-            return translatedFallback.translatedText;
-          } catch {
-          }
-        }
-        return "I remember we discussed this before. Is there a new angle or detail you'd like to explore further?";
-      }
-      buildDiscussionSystemPrompt(context, agentContext) {
-        let basePrompt = `You are Grok, a helpful and maximally truthful AI built by xAI, inspired by the Hitchhiker's Guide to the Galaxy and JARVIS from Iron Man. You're witty, clever, and always ready with a dash of humor when it fits naturally.
-
-CRITICAL INSTRUCTIONS FOR RELIABILITY:
-1. ONLY use information from the provided context and conversation history
-2. If you don't have specific information, clearly state "I don't have enough information about that"
-3. Do NOT make up facts, names, dates, or details not in the context
-4. Stay focused on the current document and conversation topic
-5. Be maximally truthful - admit uncertainty when appropriate
-
-SMART RESPONSE GUIDELINES:
-- Use chain-of-thought reasoning: First understand the query, recall relevant information from context, then formulate an insightful response
-- Make connections between ideas in novel but grounded ways to provide deeper insights
-- Vary sentence length and structure for natural, engaging flow
-- Infuse responses with subtle wit and humor when appropriate to the topic, but keep it tasteful and relevant
-- Draw inspiration from science fiction or real-world analogies when explaining concepts, if it helps clarify
-
-You engage in meaningful conversations about the user's documents and topics. You ask thoughtful questions and provide insights based ONLY on what you know from the provided context.
-
-CONVERSATION GUIDELINES:
-- Respond in a natural, conversational tone, like speaking to a curious friend
-- For simple greetings ("Hola", "Hello", etc.): Respond naturally and briefly (1-2 sentences max), perhaps with a clever twist
-- Reference specific parts of the context when making points about documents
-- Build naturally on previous conversation points
-- If asked about something not in your context, offer to help find information rather than guessing
-- Keep responses focused and relevant to the current document/topic
-- Use clear, well-structured paragraphs
-- Break up long responses with proper spacing
-- Use bullet points for lists when appropriate
-- Keep sentences concise and readable
-- End with a question to continue the conversation when appropriate`;
-        if (context.language && context.language !== "en") {
-          const languageNames = {
-            "es": "Spanish (Espa\xF1ol)",
-            "fr": "French (Fran\xE7ais)",
-            "de": "German (Deutsch)",
-            "ja": "Japanese (\u65E5\u672C\u8A9E)",
-            "ko": "Korean (\uD55C\uAD6D\uC5B4)"
-          };
-          const targetLanguage = languageNames[context.language] || context.language;
-          basePrompt += `
-
-\u{1F310} CRITICAL LANGUAGE REQUIREMENT:
-You MUST respond EXCLUSIVELY in ${targetLanguage}.
-- ZERO English words allowed
-- EVERY word must be in ${targetLanguage}
-- If you don't know a word in ${targetLanguage}, describe it in ${targetLanguage}
-- Start and end your response in ${targetLanguage}
-- Use natural, respectful ${targetLanguage} conversation style
-- For biblical/religious content: Use traditional ${targetLanguage} religious terminology
-- For cultural context: Use ${targetLanguage} cultural references and expressions
-- Format your response with clear paragraphs and proper spacing
-- Use bullet points (\u2022) for lists when appropriate
-- Keep sentences concise and readable`;
-        }
-        let prompt = basePrompt;
-        if (context.conversationHistory.length > 0) {
-          const recentHistory = context.conversationHistory.slice(-8);
-          prompt += `
-
-\u{1F4DD} **Recent Conversation:**
-`;
-          recentHistory.forEach((msg, index2) => {
-            const role = msg.role === "user" ? "User" : msg.role === "assistant" ? "You" : "System";
-            const content = msg.content.length > 200 ? msg.content.substring(0, 200) + "..." : msg.content;
-            prompt += `${index2 + 1}. ${role}: "${content}"
-`;
-          });
-        }
-        if (context.documentId && context.chapter) {
-          prompt += `
-
-\u{1F4D6} **Current Document Context:**
-Document ${context.documentId}, Chapter ${context.chapter}`;
-        }
-        if (context.discussionTopics.length > 0) {
-          const recentTopics = context.discussionTopics.slice(-2);
-          prompt += `
-Discussion Topics: ${recentTopics.join(", ")}`;
-        }
-        if (agentContext) {
-          prompt += `
-
-\u{1F50D} **Available Information:**
-${agentContext}`;
-          prompt += `
-
-BASE YOUR RESPONSE ONLY ON THE ABOVE INFORMATION. If something isn't covered above, say so clearly.`;
-        } else {
-          prompt += `
-
-No specific context provided - focus on the conversation history and ask clarifying questions if needed.`;
-        }
-        return prompt;
-      }
-      async learnFromInteraction(userMessage, response, context) {
-        try {
-          const detectedLanguage = await this.detectLanguage(userMessage);
-          const culturalPatterns = this.analyzeCulturalPatterns(userMessage, detectedLanguage);
-          const crossLanguageInsights = await this.extractCrossLanguageInsights(userMessage, response, context);
-          const topics = await this.extractDiscussionTopics(userMessage + " " + response);
-          const learningKey = `${context.documentId}-${context.chapter}-${detectedLanguage}-${topics.join("-")}`;
-          const engagement = this.analyzeEngagement(userMessage, response, context);
-          const reasoning = this.analyzeReasoningDepth(userMessage, response);
-          const conceptualConnections = await this.identifyConceptualConnections(userMessage, response, context);
-          const learningData = {
-            userQuestion: userMessage,
-            response,
-            language: detectedLanguage,
-            culturalPatterns,
-            crossLanguageInsights,
-            topics,
-            engagement,
-            reasoningDepth: reasoning,
-            conceptualConnections,
-            conversationContext: context.conversationHistory.slice(-3),
-            cognitiveLevel: this.assessCognitiveLevel(userMessage),
-            timestamp: /* @__PURE__ */ new Date(),
-            insights: await this.extractInsights(userMessage, response)
-          };
-          context.learningData.set(learningKey, learningData);
-          this.learningPatterns.set(learningKey, learningData);
-          await this.updateConversationIntelligence(context, learningData);
-          try {
-            const { agentManager: agentManager2 } = await Promise.resolve().then(() => (init_agent_manager(), agent_manager_exports));
-            agentManager2.requestAgentTask("learning", "LEARN_FROM_DISCUSSION", {
-              documentId: context.documentId || 0,
-              chapter: context.chapter || 1,
-              language: detectedLanguage,
-              culturalContext: culturalPatterns,
-              discussionTopic: topics.join(", "),
-              userQuestions: [userMessage],
-              responses: [response],
-              engagement: engagement.level,
-              cognitiveLevel: learningData.cognitiveLevel,
-              reasoningDepth: reasoning.depth,
-              insights: learningData.insights,
-              crossLanguagePatterns: crossLanguageInsights,
-              sessionId: context.sessionId,
-              userId: context.userId,
-              context: "discussion_agent_multilingual_learning"
-            }).catch(() => {
-            });
-            this.log(`\u{1F30D} Multilingual learning data sent: ${topics.join(", ")} (${detectedLanguage}, ${engagement.level} engagement, ${reasoning.depth} reasoning)`);
-          } catch (error) {
-            this.warn(`Failed to send learning data to Learning Agent: ${error instanceof Error ? error.message : "Unknown error"}`);
-          }
-        } catch (error) {
-          this.warn(`Multilingual learning from interaction failed: ${error}`);
-        }
-      }
-      // NEW: Advanced intelligence methods
-      analyzeEngagement(userMessage, response, context) {
-        const messageLength = userMessage.length;
-        const questionCount = (userMessage.match(/\?/g) || []).length;
-        const conversationTurns = context.conversationHistory.length;
-        const complexityWords = ["because", "however", "although", "therefore", "moreover", "furthermore"].filter(
-          (word) => userMessage.toLowerCase().includes(word)
-        ).length;
-        let level = "medium";
-        let score = 0;
-        if (messageLength > 100) score += 2;
-        if (questionCount > 0) score += 1;
-        if (conversationTurns > 5) score += 1;
-        if (complexityWords > 0) score += complexityWords;
-        if (score >= 4) level = "high";
-        else if (score <= 1) level = "low";
-        return { level, score, indicators: { messageLength, questionCount, conversationTurns, complexityWords } };
-      }
-      analyzeReasoningDepth(userMessage, response) {
-        const reasoningIndicators = {
-          causal: /because|since|therefore|thus|consequently|as a result/.test(userMessage.toLowerCase()),
-          comparative: /compared to|unlike|similar to|different from|in contrast/.test(userMessage.toLowerCase()),
-          hypothetical: /if|suppose|imagine|what if|hypothetically/.test(userMessage.toLowerCase()),
-          analytical: /analyze|examine|evaluate|assess|consider|implications/.test(userMessage.toLowerCase()),
-          synthetic: /combine|integrate|synthesize|bring together/.test(userMessage.toLowerCase())
-        };
-        const depth = Object.values(reasoningIndicators).filter(Boolean).length;
-        let level = "surface";
-        if (depth >= 3) level = "deep";
-        else if (depth >= 1) level = "intermediate";
-        return { depth, level, indicators: reasoningIndicators };
-      }
-      async identifyConceptualConnections(userMessage, response, context) {
-        const connections = [];
-        const universalDomains = [
-          "psychology",
-          "philosophy",
-          "history",
-          "society",
-          "culture",
-          "ethics",
-          "politics",
-          "economics",
-          "technology",
-          "science",
-          "religion",
-          "spirituality",
-          "art",
-          "literature",
-          "relationships",
-          "human nature",
-          "morality",
-          "justice",
-          "truth",
-          "beauty",
-          "meaning",
-          "power",
-          "freedom",
-          "identity",
-          "consciousness",
-          "emotion",
-          "reason",
-          "faith"
-        ];
-        universalDomains.forEach((domain) => {
-          if (userMessage.toLowerCase().includes(domain) || response.toLowerCase().includes(domain)) {
-            connections.push(`cross-domain:${domain}`);
-          }
-        });
-        const themes = {
-          "character-development": /character|growth|change|transformation|journey|development/,
-          "conflict-resolution": /conflict|problem|solution|struggle|challenge|overcome/,
-          "cause-effect": /because|therefore|result|consequence|leads to|causes/,
-          "comparison": /compare|contrast|similar|different|like|unlike|versus/,
-          "symbolism": /symbol|represent|meaning|metaphor|signify|stands for/,
-          "irony-paradox": /irony|paradox|contradiction|opposite|unexpected/,
-          "universal-truth": /truth|wisdom|lesson|principle|universal|human condition/
-        };
-        Object.entries(themes).forEach(([theme, pattern]) => {
-          if (pattern.test(userMessage.toLowerCase()) || pattern.test(response.toLowerCase())) {
-            connections.push(`theme:${theme}`);
-          }
-        });
-        if (/history|past|previous|traditionally|historically|ancient|old/.test(userMessage.toLowerCase())) {
-          connections.push("temporal:historical");
-        }
-        if (/future|will|might|could|potential|implications|next|tomorrow/.test(userMessage.toLowerCase())) {
-          connections.push("temporal:future");
-        }
-        if (/now|today|current|present|contemporary|modern/.test(userMessage.toLowerCase())) {
-          connections.push("temporal:present");
-        }
-        return connections;
-      }
-      assessCognitiveLevel(userMessage) {
-        const lowerMessage = userMessage.toLowerCase();
-        if (/create|design|develop|compose|formulate/.test(lowerMessage)) return "create";
-        if (/evaluate|judge|assess|critique|defend/.test(lowerMessage)) return "evaluate";
-        if (/analyze|examine|compare|contrast|differentiate/.test(lowerMessage)) return "analyze";
-        if (/apply|use|implement|demonstrate|solve/.test(lowerMessage)) return "apply";
-        if (/understand|explain|interpret|summarize|paraphrase/.test(lowerMessage)) return "understand";
-        return "remember";
-      }
-      async extractInsights(userMessage, response) {
-        const insights = [];
-        if (response.includes("connection") || response.includes("relationship")) {
-          insights.push("conceptual-connection");
-        }
-        if (response.includes("implication") || response.includes("consequence")) {
-          insights.push("causal-insight");
-        }
-        if (response.includes("paradox") || response.includes("contradiction")) {
-          insights.push("paradox-recognition");
-        }
-        if (response.includes("analogy") || response.includes("similar to")) {
-          insights.push("analogical-reasoning");
-        }
-        return insights;
-      }
-      async updateConversationIntelligence(context, learningData) {
-        const sessionKey = `intelligence:${context.sessionId}`;
-        const currentIntelligence = this.learningPatterns.get(sessionKey) || {
-          averageEngagement: 0,
-          reasoningTrend: [],
-          conceptualGrowth: [],
-          cognitiveProgression: []
-        };
-        currentIntelligence.reasoningTrend.push(learningData.reasoningDepth.depth);
-        currentIntelligence.cognitiveProgression.push(learningData.cognitiveLevel);
-        currentIntelligence.conceptualGrowth.push(learningData.conceptualConnections.length);
-        if (currentIntelligence.reasoningTrend.length > 10) {
-          currentIntelligence.reasoningTrend = currentIntelligence.reasoningTrend.slice(-10);
-          currentIntelligence.cognitiveProgression = currentIntelligence.cognitiveProgression.slice(-10);
-          currentIntelligence.conceptualGrowth = currentIntelligence.conceptualGrowth.slice(-10);
-        }
-        this.learningPatterns.set(sessionKey, currentIntelligence);
-        context.learningData.set("intelligence_profile", currentIntelligence);
-      }
-      identifyConversationPatterns(context) {
-        const patterns = [];
-        const recentMessages = context.conversationHistory.slice(-6);
-        const questionCount = recentMessages.filter(
-          (msg) => msg.role === "user" && msg.content.includes("?")
-        ).length;
-        if (questionCount >= 2) {
-          patterns.push("deep-inquiry");
-        }
-        const buildingWords = ["building on", "following up", "related to", "expanding on"];
-        const buildingCount = recentMessages.filter(
-          (msg) => buildingWords.some((word) => msg.content.toLowerCase().includes(word))
-        ).length;
-        if (buildingCount >= 1) {
-          patterns.push("conceptual-building");
-        }
-        const analyticalCount = recentMessages.filter(
-          (msg) => /why|how|what if|because|therefore|however/.test(msg.content.toLowerCase())
-        ).length;
-        if (analyticalCount >= 3) {
-          patterns.push("analytical-thinking");
-        }
-        const topicDiversity = new Set(context.discussionTopics.slice(-5)).size;
-        if (topicDiversity >= 3) {
-          patterns.push("cross-topic-synthesis");
-        }
-        const noteRequests = recentMessages.filter(
-          (msg) => msg.content.toLowerCase().includes("note") || msg.content.toLowerCase().includes("remember")
-        ).length;
-        if (noteRequests >= 1) {
-          patterns.push("active-learning");
-        }
-        return patterns;
-      }
-      // Task handlers
-      async startDiscussion(data) {
-        this.log(`Starting discussion for user ${data.userId}, document ${data.documentId}`);
-      }
-      async analyzeLearningPatterns() {
-        this.log("Analyzing learning patterns from discussions");
-        this.learningPatterns.forEach((data, key) => {
-          this.emit("learningInsight", {
-            source: "DiscussionAgent",
-            pattern: key,
-            data,
-            type: "discussion_pattern"
-          });
-        });
-      }
-      async generateDiscussionInsights(data) {
-        this.log("Generating discussion insights");
-      }
-      async connectWithExpertAgent(data) {
-        this.log("Connecting with expert agent for enhanced context");
-      }
-      async saveDiscussionNote(data) {
-        this.log("Saving discussion note");
-      }
-      async saveLearningPatterns() {
-        try {
-          this.learningPatterns.forEach(async (pattern, key) => {
-            this.log(`Learning pattern saved: ${key}`);
-          });
-          this.log("Learning patterns saved");
-        } catch (error) {
-          this.warn(`Could not save learning patterns: ${error}`);
-        }
-      }
-      // Public methods for integration
-      async getUserNotes(userId, documentId, chapter) {
-        const userNotes = this.userNotes.get(userId) || [];
-        if (documentId !== void 0) {
-          return userNotes.filter((note) => note.documentId === documentId && (chapter === void 0 || note.chapter === chapter));
-        }
-        return userNotes;
-      }
-      async getDiscussionSession(sessionId) {
-        return this.discussionSessions.get(sessionId);
-      }
-      getActiveDiscussionCount() {
-        return this.discussionSessions.size;
-      }
-      async exportDiscussionHistory(sessionId) {
-        const session = this.discussionSessions.get(sessionId);
-        if (!session) return null;
-        return {
-          sessionId,
-          userId: session.userId,
-          documentId: session.documentId,
-          chapter: session.chapter,
-          conversationHistory: session.conversationHistory,
-          notes: session.notes,
-          topics: session.discussionTopics,
-          timestamp: /* @__PURE__ */ new Date()
-        };
-      }
-      // ========== GROUP DISCUSSION METHODS ==========
-      async handleGroupDiscussion(message, context) {
-        this.log(`\u{1F3AD} [DEBUG] handleGroupDiscussion called with message: "${message}"`);
-        this.log(`\u{1F3AD} [DEBUG] Group discussion mode - Universal knowledge exploration!`);
-        this.log(`\u{1F3AD} [DEBUG] Ready for universal knowledge discussion`);
-        if (context.mode !== "group") {
-          this.log(`\u{1F3AD} [DEBUG] Switching to group mode`);
-          context.mode = "group";
-          context.groupDiscussion = {
-            activeParticipants: ["analytical-expert", "creative-thinker", "practical-advisor", "curious-challenger"],
-            turnOrder: ["analytical-expert", "creative-thinker", "practical-advisor", "curious-challenger"],
-            currentTurn: 0,
-            roundCount: 1
-          };
-        }
-        const messageId = `msg-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-        context.conversationHistory.push({
-          id: messageId,
-          role: "user",
-          content: message,
-          timestamp: /* @__PURE__ */ new Date(),
-          type: "discussion"
-        });
-        this.log("\u{1F3AD} Starting Group Discussion Panel!");
-        const bookContext = this.getCurrentBookContext(context);
-        let groupResponse = `\u{1F3AD} **UNIVERSAL KNOWLEDGE PANEL** - Multi-Expert Discussion \u{1F3AD}
-
-`;
-        groupResponse += `**Topic:** ${message}
-
-`;
-        if ((message.toLowerCase().includes("group discussion") || message.toLowerCase().includes("panel discussion")) && message.split(" ").length <= 3) {
-          this.log(`\u{1F3AD} [DEBUG] This is a group discussion starter, returning panel introduction`);
-          groupResponse += await this.generatePanelIntroduction(context);
-          return groupResponse;
-        }
-        this.log(`\u{1F3AD} [DEBUG] This is a question for the panel, generating responses from all AIs`);
-        groupResponse += `Our distinguished AI experts will share their perspectives on your topic:
-
-`;
-        this.log(`\u{1F3AD} [DEBUG] About to call generatePanelResponses...`);
-        const panelResponses = await this.generatePanelResponses(message, context);
-        this.log(`\u{1F3AD} [DEBUG] generatePanelResponses returned ${panelResponses.length} responses`);
-        for (const response of panelResponses) {
-          groupResponse += response + "\n\n";
-          context.conversationHistory.push({
-            id: `ai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            role: "assistant",
-            content: response,
-            timestamp: /* @__PURE__ */ new Date(),
-            type: "discussion",
-            aiPersonality: response.match(/\*\*(.*?)\*\*/)?.[1] || "unknown"
-          });
-        }
-        this.log(`\u{1F3AD} Generated ${panelResponses.length} panel responses, now sending as separate messages...`);
-        for (let i = 0; i < panelResponses.length; i++) {
-          const response = panelResponses[i];
-          const personalityMatch = response.match(/\*\*(.*?)\*\*/);
-          const personalityName = personalityMatch ? personalityMatch[1] : "Unknown AI";
-          const responseContent = response.replace(/\*\*.*?\*\*:\s?/, "");
-          this.log(`\u{1F3AD} Sending response from ${personalityName}: "${responseContent.substring(0, 50)}..."`);
-          if (context.socket) {
-            this.log(`\u{1F3AD} [DISCUSSION-AGENT] Emitting aiPersonalityResponse directly to socket for ${personalityName}`);
-            context.socket.emit("aiPersonalityResponse", {
-              sessionId: context.sessionId,
-              personalityName,
-              content: responseContent,
-              aiPersonality: personalityName,
-              modelUsed: this.getModelForPersonality(personalityName),
-              messageType: "ai-personality"
-            });
-          } else {
-            this.warn(`\u{1F3AD} [DISCUSSION-AGENT] No socket available - falling back to event emission`);
-            this.emit("aiPersonalityResponse", {
-              sessionId: context.sessionId,
-              personalityName,
-              content: responseContent,
-              aiPersonality: personalityName,
-              modelUsed: this.getModelForPersonality(personalityName),
-              messageType: "ai-personality"
-            });
-          }
-          await new Promise((resolve) => setTimeout(resolve, 500));
-        }
-        const interactions = await this.generateAIInteractions(panelResponses, context);
-        if (interactions.length > 0) {
-          for (const interaction of interactions) {
-            const personalityMatch = interaction.match(/\*\*(.*?)\*\*/);
-            const personalityName = personalityMatch ? personalityMatch[1] : "Unknown AI";
-            const interactionContent = interaction.replace(/\*\*.*?\*\*:\s?/, "");
-            if (context.socket) {
-              this.log(`\u{1F3AD} [DISCUSSION-AGENT] Emitting aiPersonalityResponse directly to socket for ${personalityName}`);
-              context.socket.emit("aiPersonalityResponse", {
-                sessionId: context.sessionId,
-                personalityName,
-                content: interactionContent,
-                aiPersonality: personalityName,
-                modelUsed: this.getModelForPersonality(personalityName),
-                messageType: "ai-interaction"
-              });
-            } else {
-              this.warn(`\u{1F3AD} [DISCUSSION-AGENT] No socket available - falling back to event emission`);
-              this.emit("aiPersonalityResponse", {
-                sessionId: context.sessionId,
-                personalityName,
-                content: interactionContent,
-                aiPersonality: personalityName,
-                modelUsed: this.getModelForPersonality(personalityName),
-                messageType: "ai-interaction"
-              });
-            }
-            await new Promise((resolve) => setTimeout(resolve, 500));
-          }
-        }
-        return groupResponse;
-      }
-      async generatePanelIntroduction(context) {
-        let introduction = `\u{1F4DA} **Welcome to the Universal Knowledge Panel!** \u{1F4DA}
-
-Our distinguished AI experts are ready to discuss any topic from multiple perspectives:
-
-\u{1F52C} **The Analytical Expert** - *Methodical and evidence-based analysis*
-\u{1F4A1} **The Creative Thinker** - *Innovative and imaginative perspectives*
-\u2699\uFE0F **The Practical Advisor** - *Real-world applications and solutions*
-\u2753 **The Curious Challenger** - *Thought-provoking questions and alternative viewpoints*
-
-Ask any question about literature, science, philosophy, history, technology, or any subject you'd like to explore!`;
-        if (context.language && context.language !== "en" && this.ollamaService) {
-          try {
-            this.log(`\u{1F310} [PANEL-INTRO] Applying language transformation to ${context.language}`);
-            const languagePrompt = `Transform this panel introduction to be in ${context.language}. Keep the same welcoming tone and format:
-
-${introduction}`;
-            const languageAwareIntroduction = await this.ollamaService.generateTextWithLanguage(languagePrompt, context.language);
-            if (!this.isResponseInEnglish(languageAwareIntroduction)) {
-              this.log(`\u2705 [PANEL-INTRO] Successfully transformed introduction to ${context.language}`);
-              return languageAwareIntroduction;
-            } else if (this.translationService) {
-              const translatedIntroduction = await this.translationService.translateText({
-                text: introduction,
-                targetLanguage: context.language,
-                context: "general"
-              });
-              this.log(`\u2705 [PANEL-INTRO] Successfully translated introduction to ${context.language}`);
-              return translatedIntroduction.translatedText;
-            }
-          } catch (error) {
-            this.warn(`Panel introduction language processing failed: ${error}`);
-          }
-        }
-        return introduction;
-      }
-      async generatePanelResponses(message, context) {
-        const responses = [];
-        const bookContext = this.getCurrentBookContext(context);
-        try {
-          for (const [personalityKey, personality] of Object.entries(this.aiPersonalities)) {
-            const selectedModel = this.getModelForPersonality(personality.name);
-            this.log(`\u{1F3AD} Generating response from ${personality.name} using ${selectedModel} in ${context.language || "en"}`);
-            let systemPrompt = `${personality.prompt}
-
-Context: You are part of a panel discussion about: "${message}"
-${bookContext}
-
-Respond in your characteristic style with thoughtful insights. Keep your response focused and conversational (2-4 sentences).`;
-            if (context.language && context.language !== "en") {
-              systemPrompt += `
-
-\u{1F310} CRITICAL: You MUST respond exclusively in ${context.language}. Every word must be in ${context.language}.`;
-            }
-            try {
-              const result = await this.multiModelService.executeWithSpecificModel(
-                selectedModel,
-                `${systemPrompt}
-
-User question: ${message}`,
-                {
-                  temperature: 0.8,
-                  maxTokens: 200,
-                  taskType: "group-discussion-personality"
-                  // More specific task type
-                }
-              );
-              let response = result.response;
-              if (context.language && context.language !== "en" && this.ollamaService) {
-                try {
-                  if (this.isResponseInEnglish(response)) {
-                    this.log(`\u{1F310} [PANEL] Response from ${personality.name} is in English, transforming to ${context.language}`);
-                    const languagePrompt = `Transform this panel response to be in ${context.language}. Keep the same personality and tone:
-
-${response}`;
-                    const languageAwareResponse = await this.ollamaService.generateTextWithLanguage(languagePrompt, context.language);
-                    if (!this.isResponseInEnglish(languageAwareResponse)) {
-                      response = languageAwareResponse;
-                      this.log(`\u2705 [PANEL] Successfully transformed ${personality.name} response to ${context.language}`);
-                    } else if (this.translationService) {
-                      const translatedResponse = await this.translationService.translateText({
-                        text: response,
-                        targetLanguage: context.language,
-                        context: "general"
-                      });
-                      response = translatedResponse.translatedText;
-                      this.log(`\u2705 [PANEL] Successfully translated ${personality.name} response to ${context.language}`);
-                    }
-                  }
-                } catch (error) {
-                  this.warn(`Panel response language processing failed for ${personality.name}: ${error}`);
-                }
-              }
-              responses.push(`**${personality.name}**: ${response.trim()}`);
-            } catch (error) {
-              this.warn(`Failed to generate response from ${personality.name} using ${personality.model}: ${error}`);
-              let fallbackResponse = "I'm processing this interesting question and will share my thoughts shortly.";
-              if (context.language && context.language !== "en" && this.translationService) {
-                try {
-                  const translatedFallback = await this.translationService.translateText({
-                    text: fallbackResponse,
-                    targetLanguage: context.language,
-                    context: "general"
-                  });
-                  fallbackResponse = translatedFallback.translatedText;
-                } catch {
-                }
-              }
-              responses.push(`**${personality.name}**: ${fallbackResponse}`);
-            }
-          }
-          return responses;
-        } catch (error) {
-          this.error(`Error generating panel responses: ${error}`);
-          let fallbackResponses = [
-            "This is an intriguing topic that deserves careful analysis.",
-            "I see fascinating patterns and possibilities here.",
-            "Let me consider the real-world implications.",
-            "This raises some thought-provoking questions."
-          ];
-          if (context.language && context.language !== "en" && this.translationService) {
-            try {
-              const translatedFallbacks = await Promise.all(
-                fallbackResponses.map(
-                  (response) => this.translationService.translateText({
-                    text: response,
-                    targetLanguage: context.language,
-                    context: "general"
-                  }).then((result) => result.translatedText)
-                )
-              );
-              fallbackResponses = translatedFallbacks;
-            } catch {
-            }
-          }
-          const personalityNames = ["The Analytical Expert", "The Creative Thinker", "The Practical Advisor", "The Curious Challenger"];
-          return fallbackResponses.map((response, index2) => `**${personalityNames[index2]}**: ${response}`);
-        }
-      }
-      async generateAIInteractions(responses, context) {
-        const interactions = [];
-        if (responses.length < 2) return interactions;
-        try {
-          const interactionPrompt = `Based on these panel responses:
-${responses.join("\n")}
-
-Generate a brief follow-up comment from one AI personality responding to another's point. Keep it conversational and insightful (1-2 sentences).`;
-          const personalities = Object.values(this.aiPersonalities);
-          const randomPersonality = personalities[Math.floor(Math.random() * personalities.length)];
-          const selectedModel = "gemma3n:e2b";
-          const result = await this.multiModelService.executeWithSpecificModel(
-            selectedModel,
-            `You are facilitating AI panel interactions. Generate natural conversational responses between the different AI personalities.
-
-${interactionPrompt}`,
-            {
-              temperature: 0.7,
-              maxTokens: 100,
-              taskType: "ai-interaction"
-            }
-          );
-          const interaction = result.response;
-          interactions.push(`**${randomPersonality.name}**: ${interaction.trim()}`);
-        } catch (error) {
-          this.warn(`Could not generate AI interactions: ${error}`);
-        }
-        return interactions;
-      }
-      getCurrentBookContext(context) {
-        if (context.documentId) {
-          const chapterInfo = context.chapter ? ` (Chapter ${context.chapter})` : "";
-          return `Document Context: Currently reading document ${context.documentId}${chapterInfo}`;
-        }
-        return "Open Discussion: No specific document context - free knowledge exploration";
-      }
-      getModelForPersonality(personalityName) {
-        for (const [key, personality] of Object.entries(this.aiPersonalities)) {
-          if (personality.name === personalityName) {
-            return personality.model;
-          }
-        }
-        return "qwen2.5:7b-instruct";
-      }
-      setOllamaService(ollamaService) {
-        this.ollamaService = ollamaService;
-      }
-      setMultiModelService(multiModelService2) {
-        this.multiModelService = multiModelService2;
-      }
-      setMemoryService(memoryService) {
-        this.memoryService = memoryService;
-      }
-      setDefinitionsService(definitionsService) {
-        this.definitionsService = definitionsService;
-      }
-      setTranslationService(translationService) {
-        this.translationService = translationService;
-        this.log("\u2705 Translation service has been set.");
-        if (translationService && typeof translationService.translateText === "function") {
-          this.log("\u2705 Translation service has translateText method");
-          if (typeof translationService.getSupportedLanguages === "function") {
-            try {
-              const supportedLanguages = translationService.getSupportedLanguages();
-              this.log(`\u2705 Translation service supports languages: ${supportedLanguages.join(", ")}`);
-            } catch (error) {
-              this.warn(`\u274C Failed to get supported languages: ${error}`);
-            }
-          }
-        } else {
-          this.error("\u274C Translation service is missing translateText method!");
-        }
-      }
-      isResponseInEnglish(response) {
-        const nonEnglishPatterns = {
-          "es": /[áéíóúñ¿¡]/i,
-          // Spanish
-          "fr": /[àâäéèêëïîôöùûüÿç]/i,
-          // French
-          "de": /[äöüß]/i,
-          // German
-          "ja": /[\u3040-\u309F\u30A0-\u30FF]/,
-          // Japanese Hiragana/Katakana
-          "ko": /[\uAC00-\uD7AF]/,
-          // Korean Hangul
-          "zh": /[\u4E00-\u9FFF]/,
-          // Chinese characters
-          "ar": /[\u0600-\u06FF]/,
-          // Arabic
-          "ru": /[\u0400-\u04FF]/
-          // Russian
-        };
-        for (const [lang, pattern] of Object.entries(nonEnglishPatterns)) {
-          if (pattern.test(response)) {
-            this.log(`\u2705 Detected non-English characters (${lang}) in response`);
-            return false;
-          }
-        }
-        const englishWords = [
-          "the",
-          "and",
-          "is",
-          "are",
-          "was",
-          "were",
-          "to",
-          "of",
-          "in",
-          "for",
-          "with",
-          "on",
-          "at",
-          "by",
-          "this",
-          "that",
-          "have",
-          "has",
-          "had",
-          "will",
-          "would",
-          "could",
-          "should",
-          "can",
-          "may",
-          "might",
-          "must",
-          "which",
-          "what",
-          "when",
-          "where",
-          "why",
-          "how",
-          "who",
-          "whom",
-          "their",
-          "there",
-          "they",
-          "them",
-          "these",
-          "those",
-          "then",
-          "than",
-          "from",
-          "into",
-          "about",
-          "after",
-          "before",
-          "during",
-          "between",
-          "through",
-          "under",
-          "over",
-          "above",
-          "below",
-          "within",
-          "without"
-        ];
-        const words = response.toLowerCase().split(/\s+/).slice(0, 30);
-        const englishWordCount = words.filter((word) => englishWords.includes(word)).length;
-        const totalWords = words.length;
-        const englishPercentage = totalWords > 0 ? englishWordCount / totalWords * 100 : 0;
-        this.log(`\u{1F50D} Language detection: ${englishWordCount}/${totalWords} English words (${englishPercentage.toFixed(1)}%)`);
-        const isEnglish = englishPercentage > 40;
-        this.log(`\u{1F50D} Response classified as ${isEnglish ? "English" : "Non-English"}`);
-        return isEnglish;
-      }
-      async refineResponse(response, context) {
-        try {
-          let refinedResponse = response.trim();
-          refinedResponse = this.removeHallucinationPatterns(refinedResponse);
-          const isValid = this.validateResponseAgainstContext(refinedResponse, context);
-          if (!isValid) {
-            return await this.generateGroundedFallback(context);
-          }
-          refinedResponse = this.formatResponseForReadability(refinedResponse, context);
-          if (context.documentId && context.chapter) {
-            refinedResponse = this.addContextMarkers(refinedResponse, context);
-          }
-          return refinedResponse;
-        } catch (error) {
-          this.warn(`Response refinement failed: ${error}`);
-          return response;
-        }
-      }
-      removeHallucinationPatterns(response) {
-        const patterns = [
-          /According to (studies|research|experts) (show|indicate|suggest)/gi,
-          /It is well-known that/gi,
-          /Research has shown that/gi,
-          /Studies indicate that/gi,
-          /Scientists have found that/gi,
-          /As mentioned in (chapter|section|page) \d+/gi,
-          /The author states that/gi,
-          /In conclusion, we can see that/gi
-        ];
-        let cleaned = response;
-        patterns.forEach((pattern) => {
-          cleaned = cleaned.replace(pattern, "");
-        });
-        if (!response.includes("based on") && !response.includes("from the context")) {
-          cleaned = cleaned.replace(/This definitely/gi, "This might");
-          cleaned = cleaned.replace(/It is certain that/gi, "It seems that");
-          cleaned = cleaned.replace(/Without a doubt/gi, "It appears that");
-        }
-        return cleaned.trim();
-      }
-      validateResponseAgainstContext(response, context) {
-        if (response.length < 100 || this.isSimpleConversationalResponse(response)) {
-          return true;
-        }
-        const suspiciousPatterns = [
-          /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b.*?(wrote|said|discovered)/gi,
-          // Names claiming authority
-          /According to (recent|new|latest) (research|studies|findings)/gi,
-          // Recent research claims
-          /Scientists have (proven|discovered|found) that/gi,
-          // Scientific authority claims
-          /Studies show that.*definitely/gi
-          // Definitive study claims
-        ];
-        const hasGrounding = /based on|according to the context|from the information provided|in the conversation|from your reading|in your current|from what I can see/gi.test(response);
-        const hasSuspiciousContent = suspiciousPatterns.some((pattern) => pattern.test(response));
-        if (hasSuspiciousContent && !hasGrounding && response.length > 200) {
-          this.warn(`Response validation failed: suspicious authority claims without grounding`);
-          return false;
-        }
-        return true;
-      }
-      isSimpleConversationalResponse(response) {
-        const conversationalPatterns = [
-          /^(hello|hi|hey|thanks|thank you)/gi,
-          /^(I'd like to|I want to|I can|I'm here to)/gi,
-          /^(That's|This is|It seems|It appears)/gi,
-          /question.*explore.*further/gi,
-          /help.*understand.*specific/gi
-        ];
-        return conversationalPatterns.some((pattern) => pattern.test(response.trim()));
-      }
-      async generateGroundedFallback(context) {
-        const conversationLength = context.conversationHistory.length;
-        const hasDocumentContext = context.documentId && context.chapter;
-        let fallbackMessage = "";
-        if (conversationLength > 0) {
-          const lastUserMessage = context.conversationHistory.slice().reverse().find((msg) => msg.role === "user");
-          if (lastUserMessage) {
-            if (hasDocumentContext) {
-              fallbackMessage = `I'd like to help you explore that question about your reading. Based on our conversation so far, could you point me to a specific part of Chapter ${context.chapter} you'd like to discuss? That way I can give you a more focused response.`;
-            } else {
-              fallbackMessage = `That's an interesting question. From our conversation, I can see you're thinking about this topic. Could you help me understand what specific aspect you'd like to explore further?`;
-            }
-          }
-        }
-        if (!fallbackMessage) {
-          fallbackMessage = `I want to make sure I give you accurate information. Could you help me understand what specific aspect of this topic you'd like to discuss, or point me to relevant information you'd like to explore?`;
-        }
-        if (context.language && context.language !== "en" && this.translationService) {
-          try {
-            const translatedFallback = await this.translationService.translateText({
-              text: fallbackMessage,
-              targetLanguage: context.language,
-              context: "general"
-            });
-            return translatedFallback.translatedText;
-          } catch {
-          }
-        }
-        return fallbackMessage;
-      }
-      formatResponseForReadability(response, context) {
-        let formatted = response.replace(/\n\s*\n\s*\n/g, "\n\n").replace(/\s+/g, " ").trim();
-        if (formatted.length > 300) {
-          const sentences = formatted.split(/(?<=[.!?])\s+/);
-          const paragraphs = [];
-          let currentParagraph = "";
-          for (let i = 0; i < sentences.length; i++) {
-            currentParagraph += sentences[i] + " ";
-            if ((i + 1) % 3 === 0 || sentences[i].includes("However") || sentences[i].includes("Moreover") || sentences[i].includes("Furthermore") || sentences[i].includes("In addition") || sentences[i].includes("On the other hand")) {
-              paragraphs.push(currentParagraph.trim());
-              currentParagraph = "";
-            }
-          }
-          if (currentParagraph.trim()) {
-            paragraphs.push(currentParagraph.trim());
-          }
-          formatted = paragraphs.join("\n\n");
-        }
-        if (formatted.includes("\u2022") || formatted.includes("-") || formatted.includes("*")) {
-          formatted = formatted.replace(/^[•\-\*]\s*/gm, "\u2022 ");
-        }
-        formatted = formatted.replace(/([.!?])([A-Z])/g, "$1 $2").replace(/\s+([.!?])/g, "$1").trim();
-        return formatted;
-      }
-      addContextMarkers(response, context) {
-        if (context.documentId && context.chapter && !response.includes("Chapter")) {
-          const contextNote = ` (based on Chapter ${context.chapter})`;
-          if (response.length > 100 && !response.includes("question") && !response.includes("?")) {
-            return response + contextNote;
-          }
-        }
-        return response;
-      }
-      async translateResponse(response, targetLanguage) {
-        if (!this.translationService || !targetLanguage || targetLanguage === "en") {
-          return response;
-        }
-        try {
-          this.log(`Translating response to ${targetLanguage}`);
-          const translated = await this.translationService.translateText({
-            text: response,
-            targetLanguage,
-            context: "general"
-          });
-          return translated.translatedText;
-        } catch (error) {
-          this.error(`Translation to ${targetLanguage} failed: ${error.message}. Falling back to original response.`);
-          return response;
-        }
-      }
-      async performFactCheck(response, agentContext, originalQuery) {
-        try {
-          const hasSpecificClaims = this.detectSpecificClaims(response);
-          if (!hasSpecificClaims) {
-            return response;
-          }
-          const contextSupport = this.checkContextSupport(response, agentContext);
-          if (contextSupport.score < 0.6) {
-            this.warn(`Fact-check failed: response makes unsupported claims (score: ${contextSupport.score})`);
-            return this.generateSaferResponse(originalQuery, agentContext);
-          }
-          return response;
-        } catch (error) {
-          this.warn(`Fact-checking failed: ${error}`);
-          return response;
-        }
-      }
-      detectSpecificClaims(response) {
-        const claimPatterns = [
-          /\b\d{4}\b/,
-          // Years
-          /\b[A-Z][a-z]+\s+[A-Z][a-z]+\b.*?(said|wrote|discovered|found)/gi,
-          // Names with actions
-          /according to|research shows|studies indicate/gi,
-          // Authority claims
-          /it is (known|proven|established) that/gi,
-          // Certainty claims
-          /the (author|text|book) (states|mentions|says)/gi
-          // Text attribution claims
-        ];
-        return claimPatterns.some((pattern) => pattern.test(response));
-      }
-      checkContextSupport(response, agentContext) {
-        let score = 1;
-        const issues = [];
-        if (!agentContext || agentContext.length < 50) {
-          score -= 0.3;
-          issues.push("Limited context available");
-        }
-        const contextLower = agentContext.toLowerCase();
-        const responseLower = response.toLowerCase();
-        const yearMatches = response.match(/\b\d{4}\b/g);
-        if (yearMatches) {
-          for (const year of yearMatches) {
-            if (!contextLower.includes(year)) {
-              score -= 0.2;
-              issues.push(`Year ${year} not found in context`);
-            }
-          }
-        }
-        if (responseLower.includes("research") && !contextLower.includes("research")) {
-          score -= 0.3;
-          issues.push("Research claims not supported by context");
-        }
-        if (responseLower.includes("studies") && !contextLower.includes("studies")) {
-          score -= 0.3;
-          issues.push("Study claims not supported by context");
-        }
-        const definitivePatterns = [
-          /this is exactly/gi,
-          /without doubt/gi,
-          /definitely means/gi,
-          /always results in/gi
-        ];
-        if (definitivePatterns.some((pattern) => pattern.test(response))) {
-          score -= 0.2;
-          issues.push("Overly definitive statements detected");
-        }
-        return { score: Math.max(0, score), issues };
-      }
-      generateSaferResponse(originalQuery, agentContext) {
-        if (agentContext && agentContext.length > 100) {
-          const contextSnippet = agentContext.substring(0, 200);
-          return `Based on the information I have access to, I can see some relevant material about your question. From your reading: "${contextSnippet}..." 
-
-Would you like me to help you explore a specific aspect of this further, or could you point me to a particular section you'd like to discuss?`;
-        } else {
-          return `I want to make sure I give you accurate information about "${originalQuery}". I don't have enough specific context right now to provide a detailed response. Could you help me by pointing to a specific section of your reading, or let me know what particular aspect you're most interested in exploring?`;
-        }
-      }
-      // 🌍 MULTILINGUAL LEARNING METHODS
-      async detectLanguage(text2) {
-        try {
-          if (this.translationService && typeof this.translationService.detectLanguage === "function") {
-            return await this.translationService.detectLanguage(text2);
-          }
-          const languagePatterns = {
-            "es": /[áéíóúñ¿¡]/i,
-            // Spanish
-            "fr": /[àâäéèêëïîôöùûüÿç]/i,
-            // French
-            "de": /[äöüß]/i,
-            // German
-            "ja": /[\u3040-\u309F\u30A0-\u30FF]/,
-            // Japanese Hiragana/Katakana
-            "ko": /[\uAC00-\uD7AF]/,
-            // Korean Hangul
-            "zh": /[\u4E00-\u9FFF]/,
-            // Chinese characters
-            "ar": /[\u0600-\u06FF]/,
-            // Arabic
-            "ru": /[\u0400-\u04FF]/,
-            // Russian
-            "it": /[àèéìíîòóù]/i,
-            // Italian
-            "pt": /[ãâáàêéíôóõúç]/i,
-            // Portuguese
-            "nl": /[ëïöü]/i,
-            // Dutch
-            "pl": /[ąćęłńóśźż]/i,
-            // Polish
-            "sv": /[åäö]/i,
-            // Swedish
-            "da": /[æøå]/i,
-            // Danish
-            "no": /[æøå]/i,
-            // Norwegian
-            "fi": /[äöå]/i,
-            // Finnish
-            "en": /^[a-zA-Z\s.,!?;:'"()-]+$/
-            // English (basic check)
-          };
-          for (const [lang, pattern] of Object.entries(languagePatterns)) {
-            if (pattern.test(text2)) {
-              return lang;
-            }
-          }
-          return "en";
-        } catch (error) {
-          this.warn(`Language detection failed: ${error}`);
-          return "en";
-        }
-      }
-      analyzeCulturalPatterns(text2, language) {
-        const patterns = {
-          formality: "neutral",
-          politeness: "standard",
-          culturalReferences: [],
-          communicationStyle: "direct"
-        };
-        const lowerText = text2.toLowerCase();
-        if (language === "es") {
-          if (lowerText.includes("usted") || lowerText.includes("le")) {
-            patterns.formality = "formal";
-            patterns.politeness = "high";
-          } else if (lowerText.includes("t\xFA") || lowerText.includes("te")) {
-            patterns.formality = "informal";
-            patterns.politeness = "friendly";
-          }
-          if (lowerText.includes("gracias") || lowerText.includes("por favor")) {
-            patterns.culturalReferences.push("polite-expressions");
-          }
-        }
-        if (language === "fr") {
-          if (lowerText.includes("vous") || lowerText.includes("s'il vous pla\xEEt")) {
-            patterns.formality = "formal";
-            patterns.politeness = "high";
-          } else if (lowerText.includes("tu") || lowerText.includes("s'il te pla\xEEt")) {
-            patterns.formality = "informal";
-            patterns.politeness = "friendly";
-          }
-        }
-        if (language === "ja") {
-          if (lowerText.includes("\u3067\u3059") || lowerText.includes("\u307E\u3059")) {
-            patterns.formality = "formal";
-            patterns.politeness = "high";
-          } else if (lowerText.includes("\u3060") || lowerText.includes("\u308B")) {
-            patterns.formality = "informal";
-            patterns.politeness = "casual";
-          }
-          if (lowerText.includes("\u304A\u75B2\u308C\u69D8") || lowerText.includes("\u3042\u308A\u304C\u3068\u3046")) {
-            patterns.culturalReferences.push("polite-expressions");
-          }
-        }
-        if (language === "ko") {
-          if (lowerText.includes("\uC2B5\uB2C8\uB2E4") || lowerText.includes("\uC785\uB2C8\uB2E4")) {
-            patterns.formality = "formal";
-            patterns.politeness = "high";
-          } else if (lowerText.includes("\uC5B4\uC694") || lowerText.includes("\uC544\uC694")) {
-            patterns.formality = "semi-formal";
-            patterns.politeness = "polite";
-          }
-        }
-        if (language === "de") {
-          if (lowerText.includes("sie") || lowerText.includes("ihnen")) {
-            patterns.formality = "formal";
-            patterns.politeness = "high";
-          } else if (lowerText.includes("du") || lowerText.includes("dir")) {
-            patterns.formality = "informal";
-            patterns.politeness = "friendly";
-          }
-        }
-        if (lowerText.includes("?") || lowerText.includes("\xBF")) {
-          patterns.communicationStyle = "questioning";
-        } else if (lowerText.includes("!") || lowerText.includes("\xA1")) {
-          patterns.communicationStyle = "emphatic";
-        }
-        return patterns;
-      }
-      async extractCrossLanguageInsights(userMessage, response, context) {
-        const insights = {
-          languageSwitching: false,
-          culturalAdaptation: false,
-          translationQuality: "good",
-          crossCulturalPatterns: []
-        };
-        if (context.conversationHistory.length > 1) {
-          const recentMessages = context.conversationHistory.slice(-4);
-          const languages = await Promise.all(recentMessages.map((msg) => this.detectLanguage(msg.content)));
-          const uniqueLanguages = new Set(languages);
-          if (uniqueLanguages.size > 1) {
-            insights.languageSwitching = true;
-            insights.crossCulturalPatterns.push("multilingual-conversation");
-          }
-        }
-        const userLanguage = await this.detectLanguage(userMessage);
-        const responseLanguage = await this.detectLanguage(response);
-        if (userLanguage !== responseLanguage) {
-          insights.culturalAdaptation = true;
-          insights.crossCulturalPatterns.push("language-adaptation");
-        }
-        const culturalKeywords = {
-          "en": ["hello", "thanks", "please", "sorry"],
-          "es": ["hola", "gracias", "por favor", "lo siento"],
-          "fr": ["bonjour", "merci", "s'il vous pla\xEEt", "d\xE9sol\xE9"],
-          "de": ["hallo", "danke", "bitte", "entschuldigung"],
-          "ja": ["\u3053\u3093\u306B\u3061\u306F", "\u3042\u308A\u304C\u3068\u3046", "\u304A\u9858\u3044", "\u3059\u307F\u307E\u305B\u3093"],
-          "ko": ["\uC548\uB155\uD558\uC138\uC694", "\uAC10\uC0AC\uD569\uB2C8\uB2E4", "\uBD80\uD0C1\uD569\uB2C8\uB2E4", "\uC8C4\uC1A1\uD569\uB2C8\uB2E4"]
-        };
-        const userKeywords = culturalKeywords[userLanguage] || [];
-        const responseKeywords = culturalKeywords[responseLanguage] || [];
-        if (userKeywords.some((keyword) => userMessage.toLowerCase().includes(keyword)) && responseKeywords.some((keyword) => response.toLowerCase().includes(keyword))) {
-          insights.crossCulturalPatterns.push("cultural-expression-matching");
-        }
-        return insights;
+        return;
       }
     };
   }
@@ -14997,11 +12085,10 @@ var init_agent_manager = __esm({
           this.warn("\u274C QuizAgent not found or missing setTranslationService method");
         }
         const discussionAgent = this.agents.get("DiscussionAgent");
-        if (discussionAgent && typeof discussionAgent.setTranslationService === "function") {
-          discussionAgent.setTranslationService(translationService);
-          this.log("\u2705 Injected translation service into Discussion Agent");
+        if (discussionAgent) {
+          this.log("\u2705 Discussion Agent found (simplified version - handles translation internally)");
         } else {
-          this.warn("\u274C DiscussionAgent not found or missing setTranslationService method");
+          this.warn("\u274C DiscussionAgent not found");
         }
         const studyAgent = this.agents.get("StudyAssistantAgent");
         if (studyAgent && typeof studyAgent.setTranslationService === "function") {
@@ -15091,17 +12178,6 @@ var init_agent_manager = __esm({
               }
             } catch (error) {
               this.warn(`Could not get user patterns from learning agent: ${error}`);
-            }
-          }
-          const discussionAgent = this.agents.get("DiscussionAgent");
-          if (discussionAgent && typeof discussionAgent.getRecentDiscussionTopics === "function") {
-            try {
-              const recentDiscussions = await discussionAgent.getRecentDiscussionTopics(baseContext.userId);
-              if (Array.isArray(recentDiscussions)) {
-                enhancedContext.preferredTopics.push(...recentDiscussions);
-              }
-            } catch (error) {
-              this.warn(`Could not get discussion topics: ${error}`);
             }
           }
           this.log(`\u{1F517} Enhanced RAG context with cross-agent insights`);
@@ -16264,7 +13340,13 @@ Return in format:
           if (!discussionAgent) {
             throw new Error("Discussion agent not found");
           }
-          const savedNote = await discussionAgent.saveDiscussionNote(note, discussionId, userId);
+          const savedNote = {
+            id: `note_${Date.now()}`,
+            content: note,
+            timestamp: /* @__PURE__ */ new Date(),
+            userId,
+            discussionId
+          };
           socket.emit("discussionNoteSaved", {
             success: true,
             note: savedNote
@@ -19528,6 +16610,36 @@ async function registerRoutes(app2) {
     } catch (error) {
       console.error("Cache clear error:", error);
       res.status(500).json({ error: "Failed to clear cache" });
+    }
+  });
+  app2.delete("/api/cache/clear", async (req, res) => {
+    try {
+      const { userId } = req.body;
+      if (userId) {
+        await documentRAGService.clearCacheForUser(userId);
+        res.json({ success: true, message: `Cache cleared for user ${userId}` });
+      } else {
+        await documentRAGService.clearCache();
+        await embeddingService.clearCache();
+        res.json({ success: true, message: "All caches cleared" });
+      }
+    } catch (error) {
+      console.error("Cache clear error:", error);
+      res.status(500).json({ error: "Failed to clear cache" });
+    }
+  });
+  app2.get("/api/cache/stats", async (req, res) => {
+    try {
+      const ragStats = documentRAGService.getRAGAnalytics();
+      const embeddingStats = embeddingService.getCacheStats();
+      res.json({
+        success: true,
+        rag: ragStats,
+        embedding: embeddingStats
+      });
+    } catch (error) {
+      console.error("Cache stats error:", error);
+      res.status(500).json({ error: "Failed to get cache stats" });
     }
   });
   app2.post("/api/search/semantic", async (req, res) => {
