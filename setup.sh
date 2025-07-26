@@ -159,6 +159,10 @@ install_dependencies() {
     
     npm install
     
+    # REQUIRED: Pull the nomic-embed-text:v1.5 embedding model for semantic search and RAG
+    ollama pull nomic-embed-text:v1.5
+    # This model is required for the app to function. See docs/NOMIC_EMBEDDING_MODEL_USAGE.md for details.
+    
     print_status "Dependencies installed successfully"
 }
 

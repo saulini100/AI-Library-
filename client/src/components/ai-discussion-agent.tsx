@@ -771,7 +771,7 @@ export default function AIDiscussionAgent({
                       }`}
                     >
                       <div
-                        className={`max-w-[80%] rounded-lg p-3 transition-all duration-300 message-bubble-pop gpu-accelerated ${
+                        className={`max-w-[85%] rounded-lg p-3 transition-all duration-300 message-bubble-pop gpu-accelerated overflow-hidden ${
                           message.role === 'user'
                             ? 'bg-blue-500 text-white hover:scale-[1.02] shadow-lg hover:shadow-xl transform hover:-translate-y-1'
                             : message.role === 'system'
@@ -807,7 +807,7 @@ export default function AIDiscussionAgent({
                             )}
                           </div>
                         )}
-                        <p className="text-sm select-text agent-message-content">{message.content}</p>
+                        <p className="text-sm select-text agent-message-content break-words overflow-wrap-anywhere whitespace-pre-wrap">{message.content}</p>
                         <div className="flex items-center justify-between">
                           <p className="text-xs opacity-70 mt-1 timestamp">
                             {message.timestamp.toLocaleTimeString()}

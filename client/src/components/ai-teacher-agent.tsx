@@ -731,7 +731,7 @@ export default function AITeacherAgent({
                             )}
                           </div>
                         )}
-                        <p className="text-sm select-text agent-message-content">{message.content}</p>
+                        <p className="text-sm select-text agent-message-content break-words overflow-wrap-anywhere whitespace-pre-wrap">{message.content}</p>
                         <div className="flex items-center justify-between">
                           <p className="text-xs opacity-70 mt-1 timestamp">
                             {message.timestamp.toLocaleTimeString()}

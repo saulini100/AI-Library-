@@ -24,7 +24,7 @@ class DiscussionIntentAnalyzer {
   }
 }
 
-// Simple tool call manager for discussion
+// Enhanced tool call manager with conversation-aware prompts
 class DiscussionToolCallManager {
   private ollamaService: OllamaService;
   
@@ -32,18 +32,42 @@ class DiscussionToolCallManager {
     this.ollamaService = ollamaService;
   }
 
+  private getConversationContext(context: any): string {
+    const history = context?.conversationHistory || [];
+    if (history.length === 0) return '';
+    
+    const recentMessages = history.slice(-3).map((msg: any) => 
+      `${msg.role === 'user' ? 'You' : 'I'}: ${msg.content}`
+    ).join('\n');
+    
+    return `Recent conversation:\n${recentMessages}\n\n`;
+  }
+
+  private getDocumentContext(context: any): string {
+    if (!context?.documentId) return '';
+    return `Context: You're discussing content from document ${context.documentId}${context.chapter ? `, chapter ${context.chapter}` : ''}.\n\n`;
+  }
+
   async generateDiscussionResponse(message: string, context: any): Promise<string> {
     const targetLanguage = context?.language || 'en';
     console.log(`💬 Discussion Tool Manager: Generating response in ${targetLanguage}`);
     
-    const prompt = `You are a helpful discussion partner. Engage in a natural conversation about the following topic. Be friendly, informative, and conversational.\n\nTopic: ${message}`;
+    const conversationContext = this.getConversationContext(context);
+    const documentContext = this.getDocumentContext(context);
+    
+    // Shorter, more human-like prompt
+    const prompt = `${documentContext}${conversationContext}You're having a natural conversation. Respond to this in a friendly, conversational way:
+
+"${message}"
+
+Keep it natural and engaging.`;
     
     console.log(`📝 Discussion Tool Manager: Sending prompt to Ollama in ${targetLanguage}`);
     
     const response = await this.ollamaService.generateTextWithLanguage(prompt, targetLanguage, {
-      temperature: 0.7, // Higher temperature for more conversational responses
-      maxTokens: 2048,
-      context: `Discussion response in ${targetLanguage}`
+      temperature: 0.8, // Higher temperature for more natural responses
+      maxTokens: 1024, // Shorter responses
+      context: `Natural conversation in ${targetLanguage}`
     });
     
     console.log(`✅ Discussion Tool Manager: Received response in ${targetLanguage}`);
@@ -77,15 +101,49 @@ class DiscussionToolCallManager {
     const targetLanguage = context?.language || 'en';
     console.log(`📝 Note Tool Manager: Generating note in ${targetLanguage}`);
     
-    const prompt = `Create a helpful note about the following topic. Make it clear, organized, and easy to reference later.\n\nTopic: ${message}`;
+    // Shorter, more focused note prompt
+    const prompt = `Create a brief, helpful note about this:
+
+"${message}"
+
+Make it clear and easy to reference.`;
     
     const response = await this.ollamaService.generateTextWithLanguage(prompt, targetLanguage, {
       temperature: 0.3, // Lower temperature for more structured notes
-      maxTokens: 1024,
+      maxTokens: 512, // Shorter notes
       context: `Note creation in ${targetLanguage}`
     });
     
     console.log(`✅ Note Tool Manager: Created note in ${targetLanguage}`);
+    return response;
+  }
+
+  async generateQuestionResponse(message: string, context: any, contextResult: any): Promise<string> {
+    const targetLanguage = context?.language || 'en';
+    console.log(`❓ Question Tool Manager: Generating response in ${targetLanguage}`);
+    
+    const conversationContext = this.getConversationContext(context);
+    const documentContext = this.getDocumentContext(context);
+    
+    let prompt = `${documentContext}${conversationContext}Answer this question naturally and conversationally:
+
+"${message}"`;
+
+    // Add relevant context if available
+    if (contextResult && contextResult.sources && contextResult.sources.length > 0) {
+      const relevantInfo = contextResult.sources.map((s: any) => s.excerpt.substring(0, 150)).join('\n');
+      prompt += `\n\nRelevant information:\n${relevantInfo}`;
+    }
+    
+    prompt += `\n\nGive a helpful, conversational answer.`;
+    
+    const response = await this.ollamaService.generateTextWithLanguage(prompt, targetLanguage, {
+      temperature: 0.7,
+      maxTokens: 1024,
+      context: `Question response in ${targetLanguage}`
+    });
+    
+    console.log(`✅ Question Tool Manager: Generated response in ${targetLanguage}`);
     return response;
   }
 }
@@ -142,13 +200,7 @@ export class DiscussionAgent extends BaseAgent {
           if (context?.documentId) {
             contextResult = await this.toolCallManager.searchDiscussionContext(message, context);
           }
-          response = await this.toolCallManager.generateDiscussionResponse(message, context);
-          
-          // Add context if found
-          if (contextResult && contextResult.sources && contextResult.sources.length > 0) {
-            response += `\n\nRelevant information:\n`;
-            response += contextResult.sources.map((s: any) => `• ${s.excerpt.substring(0, 100)}...`).join('\n');
-          }
+          response = await this.toolCallManager.generateQuestionResponse(message, context, contextResult);
           break;
           
         default:

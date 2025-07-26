@@ -72,6 +72,10 @@ if %errorLevel% neq 0 (
 )
 echo [INFO] Dependencies installed successfully
 
+REM REQUIRED: Pull the nomic-embed-text:v1.5 embedding model for semantic search and RAG
+ollama pull nomic-embed-text:v1.5
+REM This model is required for the app to function. See docs/NOMIC_EMBEDDING_MODEL_USAGE.md for details.
+
 REM Create .env file if it doesn't exist
 if not exist ".env" (
     echo [INFO] Creating environment configuration...

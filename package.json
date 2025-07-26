@@ -2,7 +2,7 @@
   "name": "document-companion",
   "version": "1.0.0",
   "type": "module",
-  "license": "MIT",
+  "license": "CC-BY-4.0",
   "description": "Universal Document Learning Platform with AI-Powered Study Assistance",
   "engines": {
     "node": ">=18.0.0"
@@ -83,6 +83,7 @@
     "ioredis": "^5.4.1",
     "lucide-react": "^0.515.0",
     "mem0ai": "^2.1.30",
+    "mermaid": "^11.9.0",
     "multer": "^2.0.1",
     "nanoid": "^5.0.9",
     "natural": "^8.0.1",

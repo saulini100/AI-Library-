@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { aiLearningService, LearningData, AgentCommunication, FeedbackData } from "@/services/ai-learning-service";
 import { useLanguage } from '@/contexts/LanguageContext';
+import AITypingIndicator from '@/components/ai-typing-indicator';
 
 interface Message {
   id: string;
@@ -99,6 +100,8 @@ export default function AINavigationAgent({
   const [feedbackSent, setFeedbackSent] = useState<Record<string, 'positive' | 'negative'>>({});
   const [feedbackMessage, setFeedbackMessage] = useState<Message | null>(null);
   const [feedbackReason, setFeedbackReason] = useState('');
+  const [isAITyping, setIsAITyping] = useState(false);
+  const [aiTypingProgress, setAiTypingProgress] = useState(0);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
   // Drag state - initialize with proper default position
@@ -135,6 +138,11 @@ export default function AINavigationAgent({
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
+
+  // Load suggestions on mount and when book/chapter changes
+  useEffect(() => {
+    updateSuggestions();
+  }, [currentBook, currentChapter]);
 
   // DuckDuckGo-only web search function (free, unlimited, no API key)
   const performWebSearch = async (searchQuery: string): Promise<SearchResult[]> => {
@@ -645,22 +653,36 @@ ${analysis.sources.length > 0 ? `**Sources:** ${analysis.sources.map(s => s.sour
   };
 
   const updateSuggestions = async () => {
+    console.log('🔄 Updating suggestions for:', { currentBook, currentChapter });
     try {
       const newSuggestions = await generateAISmartSuggestions(currentBook, currentChapter);
+      console.log('✅ Suggestions updated:', newSuggestions);
       setSuggestions(newSuggestions);
     } catch (error) {
-      console.error('Failed to update suggestions:', error);
-      setSuggestions(generateFallbackSuggestions(currentBook || 'General', currentChapter));
+      console.error('❌ Failed to update suggestions:', error);
+      const fallbackSuggestions = generateFallbackSuggestions(currentBook || 'General', currentChapter);
+      console.log('🔄 Using fallback suggestions:', fallbackSuggestions);
+      setSuggestions(fallbackSuggestions);
     }
   };
 
   const generateAISmartSuggestions = async (bookTitle?: string, chapter?: number): Promise<string[]> => {
+    console.log('🎯 Generating AI suggestions for:', { bookTitle, chapter });
+    
     if (!bookTitle) {
-      return ['Define: artificial intelligence', 'Explain: machine learning', 'What is: neural network'];
+      return [
+        'Define: artificial intelligence',
+        'Explain: machine learning', 
+        'What is: neural network',
+        'Define: blockchain',
+        'Explain: cryptocurrency'
+      ];
     }
 
     try {
       const analysis = await analyzeBookContext(bookTitle);
+      console.log('📚 Book analysis:', analysis);
+      
       const suggestions: string[] = [];
 
       if (analysis.contextType === 'quantum') {
@@ -669,7 +691,10 @@ ${analysis.sources.length > 0 ? `**Sources:** ${analysis.sources.map(s => s.sour
           'Explain: quantum entanglement',
           'What is: wave function',
           'Define: quantum tunneling',
-          'Explain: Heisenberg uncertainty'
+          'Explain: Heisenberg uncertainty principle',
+          'What is: quantum computing',
+          'Define: qubit',
+          'Explain: quantum cryptography'
         );
       } else if (analysis.contextType === 'physics') {
         suggestions.push(
@@ -677,7 +702,10 @@ ${analysis.sources.length > 0 ? `**Sources:** ${analysis.sources.map(s => s.sour
           'Explain: momentum',
           'What is: force',
           'Define: acceleration',
-          'Explain: gravity'
+          'Explain: gravity',
+          'What is: thermodynamics',
+          'Define: electromagnetic field',
+          'Explain: relativity'
         );
       } else if (analysis.contextType === 'math') {
         suggestions.push(
@@ -685,7 +713,32 @@ ${analysis.sources.length > 0 ? `**Sources:** ${analysis.sources.map(s => s.sour
           'Explain: integral',
           'What is: limit',
           'Define: function',
-          'Explain: equation'
+          'Explain: equation',
+          'What is: calculus',
+          'Define: matrix',
+          'Explain: probability'
+        );
+      } else if (analysis.contextType === 'finance' || analysis.contextType === 'economics') {
+        suggestions.push(
+          'Define: inflation',
+          'Explain: monetary policy',
+          'What is: GDP',
+          'Define: cryptocurrency',
+          'Explain: blockchain',
+          'What is: digital currency',
+          'Define: CBDC',
+          'Explain: financial technology'
+        );
+      } else if (analysis.contextType === 'technology') {
+        suggestions.push(
+          'Define: artificial intelligence',
+          'Explain: machine learning',
+          'What is: neural network',
+          'Define: blockchain',
+          'Explain: cryptocurrency',
+          'What is: digital transformation',
+          'Define: cloud computing',
+          'Explain: Internet of Things'
         );
       } else {
         suggestions.push(
@@ -693,11 +746,20 @@ ${analysis.sources.length > 0 ? `**Sources:** ${analysis.sources.map(s => s.sour
           'Explain: theory',
           'What is: principle',
           'Define: method',
-          'Explain: approach'
+          'Explain: approach',
+          'What is: framework',
+          'Define: methodology',
+          'Explain: paradigm'
         );
       }
 
-      return suggestions.slice(0, 5);
+      // Add chapter-specific suggestions if available
+      if (chapter) {
+        suggestions.unshift(`Chapter ${chapter} concepts`);
+      }
+
+      console.log('💡 Generated suggestions:', suggestions.slice(0, 6));
+      return suggestions.slice(0, 6);
     } catch (error) {
       console.error('Failed to generate AI suggestions:', error);
       return generateFallbackSuggestions(bookTitle, chapter);
@@ -705,32 +767,56 @@ ${analysis.sources.length > 0 ? `**Sources:** ${analysis.sources.map(s => s.sour
   };
 
   const generateFallbackSuggestions = (bookTitle: string, chapter?: number): string[] => {
+    console.log('🔄 Generating fallback suggestions for:', bookTitle);
     const suggestions: string[] = [];
+    const title = bookTitle.toLowerCase();
     
-    if (bookTitle.toLowerCase().includes('quantum')) {
-      suggestions.push('Define: quantum', 'Explain: superposition', 'What is: entanglement');
-    } else if (bookTitle.toLowerCase().includes('physics')) {
-      suggestions.push('Define: energy', 'Explain: momentum', 'What is: force');
-    } else if (bookTitle.includes('math')) {
-      suggestions.push('Define: derivative', 'Explain: integral', 'What is: function');
+    if (title.includes('quantum')) {
+      suggestions.push('Define: quantum', 'Explain: superposition', 'What is: entanglement', 'Define: qubit', 'Explain: quantum computing');
+    } else if (title.includes('physics')) {
+      suggestions.push('Define: energy', 'Explain: momentum', 'What is: force', 'Define: acceleration', 'Explain: gravity');
+    } else if (title.includes('math') || title.includes('mathematics')) {
+      suggestions.push('Define: derivative', 'Explain: integral', 'What is: function', 'Define: calculus', 'Explain: equation');
+    } else if (title.includes('finance') || title.includes('economic') || title.includes('money') || title.includes('cbdc')) {
+      suggestions.push('Define: inflation', 'Explain: monetary policy', 'What is: cryptocurrency', 'Define: blockchain', 'Explain: digital currency');
+    } else if (title.includes('technology') || title.includes('tech') || title.includes('ai')) {
+      suggestions.push('Define: artificial intelligence', 'Explain: machine learning', 'What is: neural network', 'Define: blockchain', 'Explain: digital transformation');
+    } else if (title.includes('business') || title.includes('management')) {
+      suggestions.push('Define: strategy', 'Explain: management', 'What is: business model', 'Define: innovation', 'Explain: leadership');
     } else {
-      suggestions.push('Define: concept', 'Explain: theory', 'What is: principle');
+      suggestions.push('Define: concept', 'Explain: theory', 'What is: principle', 'Define: method', 'Explain: approach');
     }
     
+    // Add chapter-specific suggestion if available
+    if (chapter) {
+      suggestions.unshift(`Chapter ${chapter} key concepts`);
+    }
+    
+    console.log('💡 Fallback suggestions:', suggestions);
     return suggestions;
   };
 
   const analyzeBookContext = async (bookTitle: string): Promise<{contextType: string, bookType: string}> => {
     const title = bookTitle.toLowerCase();
+    console.log('🔍 Analyzing book context for:', title);
     
+    // Check for specific content types
     if (title.includes('quantum')) {
       return { contextType: 'quantum', bookType: 'physics' };
     } else if (title.includes('physics')) {
       return { contextType: 'physics', bookType: 'science' };
-    } else if (title.includes('math')) {
+    } else if (title.includes('math') || title.includes('mathematics')) {
       return { contextType: 'math', bookType: 'mathematics' };
+    } else if (title.includes('finance') || title.includes('economic') || title.includes('money') || title.includes('banking')) {
+      return { contextType: 'finance', bookType: 'economics' };
+    } else if (title.includes('cbdc') || title.includes('digital currency') || title.includes('cryptocurrency')) {
+      return { contextType: 'finance', bookType: 'economics' };
+    } else if (title.includes('technology') || title.includes('tech') || title.includes('digital') || title.includes('ai') || title.includes('artificial intelligence')) {
+      return { contextType: 'technology', bookType: 'technology' };
     } else if (title.includes('science')) {
       return { contextType: 'science', bookType: 'academic' };
+    } else if (title.includes('business') || title.includes('management') || title.includes('strategy')) {
+      return { contextType: 'business', bookType: 'management' };
     } else {
       return { contextType: 'general', bookType: 'academic' };
     }
@@ -765,6 +851,9 @@ ${analysis.sources.length > 0 ? `**Sources:** ${analysis.sources.map(s => s.sour
     if (!query.trim()) return;
 
     setIsSearching(true);
+    setIsAITyping(true);
+    setAiTypingProgress(0);
+    
     const userMessage: Message = {
       id: `user-${Date.now()}`,
       role: 'user',
@@ -774,16 +863,30 @@ ${analysis.sources.length > 0 ? `**Sources:** ${analysis.sources.map(s => s.sour
 
     setMessages(prev => [...prev, userMessage]);
 
+    // Start progress animation
+    const progressInterval = setInterval(() => {
+      setAiTypingProgress(prev => {
+        if (prev >= 90) return prev;
+        return prev + Math.random() * 15;
+      });
+    }, 500);
+
     try {
       // Perform web search
+      setAiTypingProgress(20);
       const searchResults = await performWebSearch(query);
       setSearchResults(searchResults);
+      setAiTypingProgress(40);
 
       // Analyze results with AI
+      setAiTypingProgress(60);
       const analysis = await analyzeSearchResults(query, searchResults);
+      setAiTypingProgress(80);
 
       // Generate contextual response
+      setAiTypingProgress(90);
       const response = await generateContextualResponse(query, analysis, currentBook, currentChapter);
+      setAiTypingProgress(100);
 
       const assistantMessage: Message = {
         id: `assistant-${Date.now()}`,
@@ -810,7 +913,10 @@ ${analysis.sources.length > 0 ? `**Sources:** ${analysis.sources.map(s => s.sour
       };
       setMessages(prev => [...prev, errorMessage]);
     } finally {
+      clearInterval(progressInterval);
       setIsSearching(false);
+      setIsAITyping(false);
+      setAiTypingProgress(0);
       setQuery('');
     }
   };
@@ -1167,27 +1273,14 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
       [message.id]: { text: '', visible: true, loading: true }
     }));
     try {
-      // Determine target language - always translate to a different language
-      let targetLanguage: string;
-      if (currentLanguage === 'en') {
-        targetLanguage = 'es'; // English to Spanish
-      } else if (currentLanguage === 'es') {
-        targetLanguage = 'en'; // Spanish to English
-      } else if (currentLanguage === 'fr') {
-        targetLanguage = 'en'; // French to English
-      } else if (currentLanguage === 'de') {
-        targetLanguage = 'en'; // German to English
-      } else if (currentLanguage === 'ja') {
-        targetLanguage = 'en'; // Japanese to English
-      } else if (currentLanguage === 'ko') {
-        targetLanguage = 'en'; // Korean to English
-      } else {
-        targetLanguage = 'en'; // Default to English
-      }
+      // Always translate from English to the current desired language
+      // English is the main source language, currentLanguage is the target
+      const targetLanguage = currentLanguage;
 
       const translated = await translate({
         text: message.content,
         targetLanguage: targetLanguage as any,
+        sourceLanguage: 'en', // Always assume source is English
         context: 'explanation'
       });
       console.log('✅ Translation completed:', translated);
@@ -1228,7 +1321,7 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
         transform: 'none'
       }}
     >
-      <Card className={`w-[500px] transition-all duration-300 ${isMinimized ? 'h-16' : 'h-[700px]'} shadow-2xl border-2 border-purple-200/30 ${
+      <Card className={`w-[500px] transition-all duration-300 ${isMinimized ? 'h-16' : 'h-[700px]'} shadow-2xl border-2 border-purple-200/30 dark:border-purple-700/30 bg-white dark:bg-gray-900 ${
         isDragging ? 'select-none cursor-grabbing' : ''
       }`} style={{
         willChange: isDragging ? 'transform' : 'auto',
@@ -1249,20 +1342,20 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
         >
                       <div className="flex items-center justify-between">
               <CardTitle className="text-lg flex items-center gap-2">
-                <Target className="h-5 w-5 text-purple-600" />
+                <Target className="h-5 w-5 text-purple-600 dark:text-purple-400" />
                 AI Navigator
                 <Badge className={`text-xs ${knowledgeStats ? 'bg-green-500 text-white' : 'bg-gray-500 text-white'}`}>
                   {knowledgeStats ? 'Online' : 'Offline'}
                 </Badge>
                 {/* Drag indicator */}
-                <div className="flex gap-0.5 ml-2 opacity-50">
-                  <div className="w-1 h-1 bg-current rounded-full"></div>
-                  <div className="w-1 h-1 bg-current rounded-full"></div>
-                  <div className="w-1 h-1 bg-current rounded-full"></div>
-                  <div className="w-1 h-1 bg-current rounded-full"></div>
-                  <div className="w-1 h-1 bg-current rounded-full"></div>
-                  <div className="w-1 h-1 bg-current rounded-full"></div>
-                </div>
+                                  <div className="flex gap-0.5 ml-2 opacity-50">
+                    <div className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full"></div>
+                    <div className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full"></div>
+                    <div className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full"></div>
+                    <div className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full"></div>
+                    <div className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full"></div>
+                    <div className="w-1 h-1 bg-gray-600 dark:bg-gray-400 rounded-full"></div>
+                  </div>
               </CardTitle>
               <div className="flex items-center gap-1">
                 <Button
@@ -1289,11 +1382,11 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
             <ScrollArea className="flex-1 p-4">
               <div className="space-y-4">
                 {messages.length === 0 ? (
-                  <div className="text-center text-muted-foreground py-8">
-                    <Target className="h-12 w-12 mx-auto mb-4 text-purple-500/50" />
-                    <p className="text-sm">Welcome to your AI Navigator!</p>
-                    <p className="text-xs mt-2">Search for definitions and explanations with DuckDuckGo integration.</p>
-                  </div>
+                                  <div className="text-center text-muted-foreground py-8">
+                  <Target className="h-12 w-12 mx-auto mb-4 text-purple-500/50 dark:text-purple-400/50" />
+                  <p className="text-sm">Welcome to your AI Navigator!</p>
+                  <p className="text-xs mt-2">Search for definitions and explanations with DuckDuckGo integration.</p>
+                </div>
                 ) : (
                   messages.map((message, index) => {
                     // Try to extract sources from the message content (AIResponse format)
@@ -1341,17 +1434,17 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
                               <span className="font-medium">Navigation Agent</span>
                             </div>
                             {message.role === 'assistant' && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-6 w-6 p-0 text-purple-500 hover:text-purple-700 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:scale-110 btn-scale"
-                                title="Save as note"
-                              >
+                                                          <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-6 w-6 p-0 text-purple-500 hover:text-purple-700 dark:text-purple-400 dark:hover:text-purple-300 opacity-0 group-hover:opacity-100 transition-all duration-300 hover:scale-110 btn-scale"
+                              title="Save as note"
+                            >
                                 <StickyNote className="h-3 w-3 animate-in bounce-in delay-500" />
                               </Button>
                             )}
                           </div>
-                          <p className="text-sm select-text agent-message-content whitespace-pre-wrap">{message.content}</p>
+                          <p className="text-sm select-text agent-message-content break-words overflow-wrap-anywhere whitespace-pre-wrap">{message.content}</p>
                           {/* Translation button and translated text */}
                           {message.role === 'assistant' && (
                             <div className="mt-2 flex flex-col gap-1">
@@ -1368,14 +1461,14 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
                                   ) : (
                                     <Globe className="w-3 h-3 mr-1 inline-block" />
                                   )}
-                                  Translate to {currentLanguage === 'en' ? 'Spanish' : currentLanguage === 'es' ? 'English' : getLanguageConfig(currentLanguage)?.name || currentLanguage}
+                                  Translate to {getLanguageConfig(currentLanguage)?.name || currentLanguage}
                                 </Button>
                               )}
                               {translatedMessages[message.id] && (
                                 <div className="rounded bg-purple-50 dark:bg-purple-900/20 p-2 mt-1 text-xs text-purple-900 dark:text-purple-100 border border-purple-200 dark:border-purple-700 flex flex-col gap-1">
                                   <div className="flex items-center gap-2 mb-1">
                                     <Badge variant="secondary" className="text-xs px-1 py-0">
-                                      {currentLanguage === 'en' ? 'Spanish' : currentLanguage === 'es' ? 'English' : getLanguageConfig(currentLanguage)?.name || currentLanguage} Translation
+                                      {getLanguageConfig(currentLanguage)?.name || currentLanguage} Translation
                                     </Badge>
                                     <Button
                                       size="sm"
@@ -1443,7 +1536,7 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
                           {/* Gemma 3N badge */}
                           {message.role === 'assistant' && message.content.includes('**') && (
                             <div className="mt-2">
-                              <Badge variant="outline" className="text-xs px-1 py-0 bg-gradient-to-r from-green-50 to-blue-50 border-green-200">
+                              <Badge variant="outline" className="text-xs px-1 py-0 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/30 dark:to-blue-900/30 border-green-200 dark:border-green-700">
                                 <Brain className="w-2 h-2 mr-1" />
                                 Gemma 3N
                               </Badge>
@@ -1453,6 +1546,17 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
                       </div>
                     );
                   })
+                )}
+                
+                {/* AI Typing Indicator */}
+                {isAITyping && (
+                  <AITypingIndicator
+                    isTyping={isAITyping}
+                    agentType="navigation"
+                    currentProgress={aiTypingProgress}
+                    estimatedTime={3}
+                    customMessage="Searching and analyzing..."
+                  />
                 )}
                 
                 <div ref={messagesEndRef} />
@@ -1476,7 +1580,7 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                     onKeyPress={handleKeyPress}
-                    className="pr-16 border-purple-200 focus:border-purple-400 focus:ring-purple-400"
+                    className="pr-16 border-purple-200 dark:border-purple-700 focus:border-purple-400 dark:focus:border-purple-500 focus:ring-purple-400 dark:focus:ring-purple-500 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
                     disabled={isSearching}
                   />
                   <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
@@ -1484,7 +1588,7 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
                     {query.trim() && /^(define|explain|what is|meaning of)/i.test(query.trim()) && (
                       <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse" title="Definition search detected" />
                     )}
-                    <Search className="w-4 h-4 text-gray-400" />
+                    <Search className="w-4 h-4 text-gray-400 dark:text-gray-500" />
                   </div>
                 </div>
                 <Button 
@@ -1509,7 +1613,7 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
                     <p className="text-xs text-gray-600 dark:text-gray-400">AI suggestions:</p>
-                    <Badge variant="outline" className="text-xs px-1 py-0 bg-gradient-to-r from-purple-50 to-blue-50">
+                    <Badge variant="outline" className="text-xs px-1 py-0 bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/30 dark:to-blue-900/30 border-purple-200 dark:border-purple-700">
                       <Sparkles className="w-2 h-2 mr-1" />
                       Smart
                     </Badge>
@@ -1526,7 +1630,7 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
                           className={`text-xs h-6 px-2 transition-all duration-200 ${
                             isDefinitionSuggestion 
                               ? "bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white shadow-sm" 
-                              : "border-purple-200 hover:bg-purple-50 hover:border-purple-300"
+                              : "border-purple-200 dark:border-purple-700 hover:bg-purple-50 dark:hover:bg-purple-900/30 hover:border-purple-300 dark:hover:border-purple-600"
                           }`}
                         >
                           {isDefinitionSuggestion && "🔍 "}
@@ -1552,7 +1656,7 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
 
               {/* Learning Mode */}
               {showLearningMode && (
-                <div className="space-y-2 p-3 border rounded-md bg-green-50 dark:bg-green-900/20">
+                <div className="space-y-2 p-3 border border-green-200 dark:border-green-700 rounded-md bg-green-50 dark:bg-green-900/20">
                   <Input
                     placeholder="Share a definition or insight..."
                     value={customDefinition}

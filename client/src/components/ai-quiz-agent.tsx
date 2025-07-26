@@ -586,7 +586,7 @@ What kind of quiz would you like to create about this content?`,
                             ${msg.role === 'user' ? 'bg-blue-500 text-white' : 'bg-zinc-200 dark:bg-zinc-700 text-zinc-800 dark:text-zinc-200'}
                             ${msg.role === 'system' ? 'bg-blue-100 dark:bg-blue-900/50 border border-blue-300 dark:border-blue-700 w-full max-w-none' : ''}
                           `}>
-                            <div className="text-sm overflow-hidden">{renderMessageContent(msg.content)}</div>
+                            <div className="text-sm overflow-hidden break-words overflow-wrap-anywhere whitespace-pre-wrap">{renderMessageContent(msg.content)}</div>
                             <p className="text-xs text-right mt-2 opacity-60">
                               {new Date(msg.timestamp).toLocaleTimeString()}
                             </p>

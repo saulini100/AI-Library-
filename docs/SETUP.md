@@ -44,7 +44,14 @@ cd DocumentCompanion
 npm install
 ```
 
-### **2. Setup Database**
+### **2. REQUIRED: Pull Embedding Model**
+```bash
+# Pull the required embedding model for semantic search and RAG
+ollama pull nomic-embed-text:v1.5
+```
+> ⚠️ **This step is required!** The application will not function without this model. For more details, see [Nomic Embedding Model Usage](NOMIC_EMBEDDING_MODEL_USAGE.md).
+
+### **3. Setup Database**
 ```bash
 # Generate database schema
 npm run db:generate
@@ -53,7 +60,7 @@ npm run db:generate
 npm run db:migrate
 ```
 
-### **3. Install AI Services**
+### **4. Install AI Services**
 ```bash
 # Install Ollama (if not already installed)
 # On macOS/Linux:
@@ -68,7 +75,7 @@ ollama pull qwen2.5:7b-instruct
 ollama pull llama3.2:3b
 ```
 
-### **4. Start Development Server**
+### **5. Start Development Server**
 ```bash
 # Start basic development server
 npm run dev
@@ -181,6 +188,13 @@ ollama pull gemma3n:e2b
 ollama pull qwen2.5:7b-instruct
 ollama pull llama3.2:3b
 ```
+
+### **REQUIRED: Pull nomic-embed-text:v1.5 Model**
+```bash
+ollama pull nomic-embed-text:v1.5
+```
+> ⚠️ **This model is required for semantic search, RAG, and core AI features.**
+> See [docs/NOMIC_EMBEDDING_MODEL_USAGE.md](NOMIC_EMBEDDING_MODEL_USAGE.md) for details.
 
 ### **Model Configuration**
 The application uses `gemma3n:e2b` by default. You can change the default model by setting the `OLLAMA_MODEL` environment variable.
