@@ -11,6 +11,7 @@ import performanceRouter, { performanceMiddleware } from "./routes/performance.j
 import phase2IntelligenceRoutes from './routes/phase2-intelligence-routes.js';
 import aiLearningRoutes from './routes/ai-learning';
 import { createTranslationRoutes } from './routes/translation-routes.js';
+import definitionRoutes from './routes/definition-routes.js';
 // Note: phase2-intelligence-routes may not exist yet, will be created if needed
 
 // Import Agent Manager and Services
@@ -61,6 +62,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.use('/api/performance', performanceRouter);
   app.use('/api', phase2IntelligenceRoutes);
   app.use('/api/ai-learning', aiLearningRoutes);
+  app.use('/api/definitions', definitionRoutes);
   
   // Initialize Ollama service for translation routes
   const ollamaService = new OllamaService({

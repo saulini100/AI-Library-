@@ -98,6 +98,7 @@ export default function AIDiscussionAgent({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const chatRef = useRef<HTMLDivElement>(null);
+  const positionRef = useRef(position);
   const animationFrameRef = useRef<number | null>(null);
   const prevChapterRef = useRef<number>();
   const { toast } = useToast();
@@ -576,7 +577,11 @@ export default function AIDiscussionAgent({
   const handleMouseUp = () => {
     if (isDragging) {
       setIsDragging(false);
-      localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+      // Use the current position from the state instead of potentially stale position
+      setPosition(currentPos => {
+        localStorage.setItem(POSITION_KEY, JSON.stringify(currentPos));
+        return currentPos;
+      });
     }
   };
 
@@ -623,7 +628,11 @@ export default function AIDiscussionAgent({
     const handleTouchEnd = () => {
       if (isDragging) {
         setIsDragging(false);
-        localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+        // Use the current position from the state instead of potentially stale position
+        setPosition(currentPos => {
+          localStorage.setItem(POSITION_KEY, JSON.stringify(currentPos));
+          return currentPos;
+        });
       }
     };
 
@@ -648,6 +657,23 @@ export default function AIDiscussionAgent({
       document.removeEventListener('mouseup', handleMouseUp);
     };
   }, [isDragging, dragOffset]);
+
+  // Keep position ref updated
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
+  // Save position to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+  }, [position]);
+
+  // Save position when component closes/unmounts
+  useEffect(() => {
+    return () => {
+      localStorage.setItem(POSITION_KEY, JSON.stringify(positionRef.current));
+    };
+  }, []);
 
   // Save minimized state
   useEffect(() => {

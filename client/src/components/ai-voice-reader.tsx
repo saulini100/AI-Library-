@@ -162,6 +162,7 @@ export function AIVoiceReader({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const voiceReaderRef = useRef<HTMLDivElement>(null);
+  const positionRef = useRef(position);
   const animationFrameRef = useRef<number | null>(null);
   
   // Voice cloning states
@@ -201,10 +202,22 @@ export function AIVoiceReader({
     }
   }, []);
 
+  // Keep position ref updated
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
   // Save position to localStorage
   useEffect(() => {
     localStorage.setItem(POSITION_KEY, JSON.stringify(position));
   }, [position]);
+
+  // Save position when component closes/unmounts
+  useEffect(() => {
+    return () => {
+      localStorage.setItem(POSITION_KEY, JSON.stringify(positionRef.current));
+    };
+  }, []);
 
   // Save minimized state
   useEffect(() => {
@@ -462,8 +475,11 @@ export function AIVoiceReader({
       voiceReaderRef.current.style.boxShadow = '';
     }
     
-    // Save position immediately
-    localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+    // Save position immediately using latest state
+    setPosition((currentPos: { x: number; y: number }) => {
+      localStorage.setItem(POSITION_KEY, JSON.stringify(currentPos));
+      return currentPos;
+    });
   }, [position]);
 
   const handleDoubleClick = () => {

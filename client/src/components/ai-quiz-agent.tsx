@@ -258,6 +258,7 @@ export default function AIQuizAgent({ documentId, chapter, isOpen, onToggle }: A
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const quizRef = useRef<HTMLDivElement>(null);
+  const positionRef = useRef(position);
   const animationFrameRef = useRef<number | null>(null);
   const prevChapterRef = useRef<number>();
   const { toast } = useToast();
@@ -270,6 +271,23 @@ export default function AIQuizAgent({ documentId, chapter, isOpen, onToggle }: A
     sessionId,
     sendQuizRequest
   } = useLanguageAwareAgents();
+
+  // Keep position ref updated
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
+  // Save position to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+  }, [position]);
+
+  // Save position when component closes/unmounts
+  useEffect(() => {
+    return () => {
+      localStorage.setItem(POSITION_KEY, JSON.stringify(positionRef.current));
+    };
+  }, []);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -447,7 +465,11 @@ What kind of quiz would you like to create about this content?`,
   const handleMouseUp = () => {
     if (isDragging) {
       setIsDragging(false);
-      localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+      // Save position using the latest state value
+      setPosition((currentPos: { x: number; y: number }) => {
+        localStorage.setItem(POSITION_KEY, JSON.stringify(currentPos));
+        return currentPos;
+      });
     }
   };
 

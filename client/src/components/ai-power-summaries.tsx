@@ -80,10 +80,22 @@ export default function AIPowerSummaries({
     };
   });
 
+  // Keep position ref updated
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
   // Save position to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem('powerSummariesPanelPosition', JSON.stringify(position));
   }, [position]);
+
+  // Save position when component closes/unmounts
+  useEffect(() => {
+    return () => {
+      localStorage.setItem('powerSummariesPanelPosition', JSON.stringify(positionRef.current));
+    };
+  }, []);
 
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
@@ -99,6 +111,7 @@ export default function AIPowerSummaries({
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const expandedCardRef = useRef<HTMLDivElement>(null);
   const summaryPanelRef = useRef<HTMLDivElement>(null);
+  const positionRef = useRef(position);
   const animationFrameRef = useRef<number | null>(null);
 
   // Fetch all power summaries for this document
@@ -260,8 +273,11 @@ export default function AIPowerSummaries({
       selection.removeAllRanges();
     }
 
-    // Save position to localStorage on drag end
-    localStorage.setItem('powerSummariesPanelPosition', JSON.stringify(position));
+    // Save position to localStorage on drag end using latest state
+    setPosition((currentPos: { x: number; y: number }) => {
+      localStorage.setItem('powerSummariesPanelPosition', JSON.stringify(currentPos));
+      return currentPos;
+    });
   };
 
   useEffect(() => {

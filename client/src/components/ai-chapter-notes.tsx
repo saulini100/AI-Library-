@@ -77,6 +77,7 @@ export default function AIChapterNotes({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const panelRef = useRef<HTMLDivElement>(null);
+  const positionRef = useRef(position);
   const animationFrameRef = useRef<number | null>(null);
 
   // Update position when state changes
@@ -92,10 +93,22 @@ export default function AIChapterNotes({
     }
   }, [isMinimized]);
 
+  // Keep position ref updated
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
   // Save position to localStorage whenever it changes
   useEffect(() => {
     localStorage.setItem(POSITION_KEY, JSON.stringify(position));
   }, [position]);
+
+  // Save position when component closes/unmounts
+  useEffect(() => {
+    return () => {
+      localStorage.setItem(POSITION_KEY, JSON.stringify(positionRef.current));
+    };
+  }, []);
 
   // Save minimized state to localStorage whenever it changes
   useEffect(() => {
@@ -212,7 +225,11 @@ export default function AIChapterNotes({
       selection.removeAllRanges();
     }
 
-    localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+    // Save position using the latest state value
+    setPosition((currentPos: { x: number; y: number }) => {
+      localStorage.setItem(POSITION_KEY, JSON.stringify(currentPos));
+      return currentPos;
+    });
   };
 
   useEffect(() => {

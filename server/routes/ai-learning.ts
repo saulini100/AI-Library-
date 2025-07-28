@@ -125,44 +125,35 @@ async function analyzeDefinitionWithContext(term: string, searchResults: any[], 
   };
 }
 
-// Trigger learning agent for deep learning
+// Trigger learning agent for deep learning (now selective)
 router.post('/trigger-learning', async (req, res) => {
   try {
-    const { documentId, chapter, term, analysis, searchResults, learningType, gemma3nAnalysis } = req.body;
+    const { documentId, learningType, definitionCount, definitions } = req.body;
     
-    if (!documentId || !term) {
-      return res.status(400).json({ error: 'documentId and term are required' });
+    if (!documentId) {
+      return res.status(400).json({ error: 'documentId is required' });
     }
 
-    // Store the navigation agent learning data for the auto-learning system
-    const learningData = {
-      documentId: parseInt(documentId),
-      chapter: chapter || 1,
-      term: term,
-      analysis: analysis,
-      searchResults: searchResults || [],
-      learningType: learningType || 'navigation-definition',
-      gemma3nAnalysis: gemma3nAnalysis || false,
-      timestamp: new Date().toISOString()
-    };
+    // Only trigger learning for significant patterns or batch operations
+    const shouldTriggerLearning = 
+      learningType === 'batch-definitions' && definitionCount >= 5 ||
+      learningType === 'gemma3n-enhanced' ||
+      learningType === 'critical-concept';
 
-    // Trigger auto-learning for this document to incorporate the navigation agent data
-    if (gemma3nAnalysis) {
-      // For Gemma 3N analysis, trigger immediate learning
+    if (shouldTriggerLearning) {
+      console.log(`🧠 Triggering selective learning for ${learningType} (${definitionCount || 1} items)`);
       await autoLearningSystem.triggerAutoLearning(parseInt(documentId));
     } else {
-      // For regular analysis, we can store the data for later processing
-      // The auto-learning system will pick this up during its next cycle
-      console.log(`📚 Navigation agent learning data stored for document ${documentId}: ${term}`);
+      console.log(`📚 Learning data accumulated for document ${documentId} (${learningType})`);
     }
 
     res.json({
       success: true,
-      message: 'Learning task triggered successfully',
+      message: shouldTriggerLearning ? 'Learning triggered' : 'Learning data accumulated',
       documentId: parseInt(documentId),
-      term: term,
       learningType: learningType,
-      gemma3nAnalysis: gemma3nAnalysis
+      triggered: shouldTriggerLearning,
+      itemCount: definitionCount || 1
     });
   } catch (error) {
     console.error('Trigger learning error:', error);

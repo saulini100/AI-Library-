@@ -125,6 +125,7 @@ export default function AINavigationAgent({
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
   const chatRef = useRef<HTMLDivElement>(null);
+  const positionRef = useRef(position);
   const animationFrameRef = useRef<number | null>(null);
   const { currentLanguage, translate, isTranslating, getLanguageConfig } = useLanguage();
   const [translatedMessages, setTranslatedMessages] = useState<Record<string, { text: string; visible: boolean; loading: boolean }>>({});
@@ -133,6 +134,23 @@ export default function AINavigationAgent({
     if (messagesEndRef.current) {
       messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
+  }, []);
+
+  // Keep position ref updated
+  useEffect(() => {
+    positionRef.current = position;
+  }, [position]);
+
+  // Save position to localStorage whenever it changes
+  useEffect(() => {
+    localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+  }, [position]);
+
+  // Save position when component closes/unmounts
+  useEffect(() => {
+    return () => {
+      localStorage.setItem(POSITION_KEY, JSON.stringify(positionRef.current));
+    };
   }, []);
 
   useEffect(() => {
@@ -594,25 +612,35 @@ Focus on providing accurate, educational content that would be valuable for lear
         await aiLearningService.addLearning(enhancedLearningData);
       }
 
-      // Trigger learning agent tasks for deep learning
+      // Store definition for knowledge sharing (without triggering learning)
       if (documentId) {
         try {
-          // Send learning task to server for processing
-          await fetch('/api/ai-learning/trigger-learning', {
+          // Store definition in dedicated storage for agent sharing
+          await fetch('/api/definitions/store', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
+              term: term,
+              definition: analysis.definition,
+              examples: analysis.examples || [],
+              relatedTerms: analysis.relatedTerms || [],
+              sources: results.map(r => r.url),
+              confidence: analysis.metadata?.gemma3nAnalysis ? 0.95 : 0.8,
               documentId: documentId,
               chapter: currentChapter,
-              term: term,
-              analysis: analysis,
-              searchResults: results,
-              learningType: 'navigation-definition',
-              gemma3nAnalysis: analysis.metadata?.gemma3nAnalysis || false
+              context: {
+                book: currentBook,
+                chapter: currentChapter,
+                complexity: analysis.metadata?.complexity || 'intermediate',
+                model: analysis.metadata?.model || 'fallback',
+                gemma3nAnalysis: analysis.metadata?.gemma3nAnalysis || false
+              }
             })
           });
+          
+          console.log(`📚 Definition stored for sharing: "${term}"`);
         } catch (error) {
-          console.warn('Failed to trigger learning agent task:', error);
+          console.warn('Failed to store definition:', error);
         }
       }
 
@@ -1174,7 +1202,11 @@ ${analysis.relatedTerms.length > 0 ? `**Related Terms:** ${analysis.relatedTerms
       cancelAnimationFrame(animationFrameRef.current);
     }
     animationFrameRef.current = requestAnimationFrame(() => {
-      localStorage.setItem(POSITION_KEY, JSON.stringify(position));
+      // Save position using the latest state value
+      setPosition((currentPos: { x: number; y: number }) => {
+        localStorage.setItem(POSITION_KEY, JSON.stringify(currentPos));
+        return currentPos;
+      });
     });
   }, [isDragging, dragOffset, position]);
 
